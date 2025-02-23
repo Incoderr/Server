@@ -1,0 +1,6 @@
+.env
+__pycache__
+uploads
+public
+node_modules
+.idea

@@ -5,9 +5,9 @@ const cors = require('cors');
 
 const app = express();
 
-mongoose.connect(process.env.MONGO_URI);
+mongoose.connect(process.env.MONGO_URI)
 
-then(() => {
+.then(() => {
   console.log('✅ Connected to MongoDB');
   mongoose.connection.db.listCollections().toArray((err, collections) => {
     if (err) {

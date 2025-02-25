@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const fetch = require('node-fetch'); // Добавляем node-fetch для запросов к AniList
+const fetch = require('node-fetch');
 
 const app = express();
 
@@ -37,7 +37,11 @@ const animeSchema = new mongoose.Schema({
 
 const Anime = mongoose.model('Anime', animeSchema);
 
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173', // Разрешаем запросы с вашего локального фронтенда
+  methods: ['GET', 'POST'], // Указываем разрешенные методы
+  allowedHeaders: ['Content-Type'], // Указываем разрешенные заголовки
+}));
 app.use(express.json());
 
 // Список аниме из вашей базы
@@ -47,12 +51,8 @@ app.get('/api/anime', async (req, res) => {
     console.log('📌 Получен запрос с параметрами:', { genre, search });
 
     let query = {};
-    if (genre) {
-      query.Genres = { $in: [genre] };
-    }
-    if (search) {
-      query.TitleRu = { $regex: new RegExp(search, 'i') };
-    }
+    if (genre) query.Genres = { $in: [genre] };
+    if (search) query.TitleRu = { $regex: new RegExp(search, 'i') };
 
     console.log('📌 Сформирован запрос к MongoDB:', query);
 
@@ -84,12 +84,14 @@ app.get('/api/anime/:ttid', async (req, res) => {
   }
 });
 
-// Новый эндпоинт для проксирования запросов к AniList API
+// Прокси для AniList API
 app.post('/api/anilist', async (req, res) => {
   try {
-    const { query, variables } = req.body; // Получаем GraphQL-запрос от клиента
-
+    const { query, variables } = req.body;
     console.log('📌 Запрос к AniList:', { query, variables });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // Таймаут 8 секунд
 
     const response = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -98,8 +100,10 @@ app.post('/api/anilist', async (req, res) => {
         'Accept': 'application/json',
       },
       body: JSON.stringify({ query, variables }),
-      timeout: 7000, // 5 секунд
+      signal: controller.signal, // Добавляем сигнал для отмены
     });
+
+    clearTimeout(timeoutId); // Очищаем таймаут, если запрос успешен
 
     if (!response.ok) {
       throw new Error(`AniList API ответил статусом: ${response.status}`);
@@ -108,24 +112,28 @@ app.post('/api/anilist', async (req, res) => {
     const data = await response.json();
     console.log('📌 Ответ от AniList:', data);
 
-    // (Опционально) Интеграция с вашей базой MongoDB
+    // (Опционально) Обогащение данными из MongoDB
     const anilistMedia = data.data?.Page?.media || [];
     const enhancedMedia = await Promise.all(
       anilistMedia.map(async (anime) => {
-        const dbAnime = await Anime.findOne({ TitleRu: anime.title.romaji }); // Пример сопоставления по названию
+        const dbAnime = await Anime.findOne({ TitleRu: anime.title.romaji });
         return {
           ...anime,
-          ttid: dbAnime?.TTID || null, // Добавляем TTID из вашей базы, если есть
-          backdrop: dbAnime?.Backdrop || null, // Добавляем фон из базы
+          ttid: dbAnime?.TTID || null,
+          backdrop: dbAnime?.Backdrop || null,
         };
       })
     );
 
     res.json({ ...data, data: { ...data.data, Page: { ...data.data.Page, media: enhancedMedia } } });
   } catch (error) {
-    console.error('❌ Ошибка при запросе к AniList:', error);
-    res.status(500).json({ error: 'Ошибка при запросе к AniList' });
+    console.error('❌ Ошибка при запросе к AniList:', error.message);
+    if (error.name === 'AbortError') {
+      res.status(504).json({ error: 'Запрос к AniList превысил время ожидания' });
+    } else {
+      res.status(500).json({ error: 'Ошибка при запросе к AniList' });
+    }
   }
 });
 
-module.exports = app; // Экспортируем app для Vercel
+module.exports = app;

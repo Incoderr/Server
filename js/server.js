@@ -38,7 +38,7 @@ const animeSchema = new mongoose.Schema({
 const Anime = mongoose.model('Anime', animeSchema);
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://animeinc.vercel.app/'], // Разрешаем запросы с вашего локального фронтенда
+  origin: ['http://localhost:5173', 'https://animeinc.vercel.app'], // Разрешаем запросы с вашего локального фронтенда
   methods: ['GET', 'POST'], // Указываем разрешенные методы
   allowedHeaders: ['Content-Type'], // Указываем разрешенные заголовки
 }));

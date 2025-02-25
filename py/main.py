@@ -20,7 +20,7 @@ load_dotenv()
 
 
 class AnimeConfig:
-    def __init__(self, limit=10, delay=2):
+    def __init__(self, limit=6385, delay=2):
         self.LIMIT = limit
         self.DELAY = delay
         self.TMDB_API_KEY = os.getenv('TMDB_API_KEY')
@@ -102,7 +102,6 @@ def clean_title(title):
 
 
 def get_anime_list(config, language, existing_anime, needed_count):
-    """Получает список аниме с учетом уже существующих."""
     if needed_count <= 0:
         return []
 
@@ -113,20 +112,28 @@ def get_anime_list(config, language, existing_anime, needed_count):
     driver = webdriver.Firefox(service=service, options=options)
     driver.get(url)
     anime_list = []
-    page = 1
-    max_pages = 10
+    attempts = 0
+    max_attempts = 10
 
-    while len(anime_list) < needed_count and page <= max_pages:
-        time.sleep(config.DELAY)
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+    # Ждём первую загрузку
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "ipc-metadata-list-summary-item"))
+    )
+
+    while len(anime_list) < needed_count and attempts < max_attempts:
+        # Парсим текущую страницу
         soup = BeautifulSoup(driver.page_source, "html.parser")
         anime_items = soup.find_all("li", class_="ipc-metadata-list-summary-item")
+        print(f"Попытка {attempts + 1}: найдено {len(anime_items)} элементов на странице")
 
-        for item in anime_items:
-            ttid_match = re.search(r"/title/(tt\d+)/", item.find("a")["href"])
+        # Обрабатываем только новые элементы
+        new_items = anime_items[len(anime_list):]
+        print(f"Новых элементов для обработки: {len(new_items)}")
+        for item in new_items:
+            ttid_match = re.search(r"/title/(tt\d+)/", item.find("a")["href"]) if item.find("a") else None
             if not ttid_match:
+                print("Пропуск: TTID не найден")
                 continue
-
             ttid = ttid_match.group(1)
 
             if is_anime_exists(ttid, existing_anime):
@@ -135,12 +142,11 @@ def get_anime_list(config, language, existing_anime, needed_count):
 
             title_tag = item.find("h3")
             if not title_tag:
+                print("Пропуск: заголовок не найден")
                 continue
-
             raw_title = title_tag.text.strip()
             title = clean_title(raw_title)
 
-            # Получаем год выхода
             year_span = item.find("span", class_="dli-title-metadata-item")
             year = extract_year(year_span.text.strip()) if year_span else None
 
@@ -153,21 +159,35 @@ def get_anime_list(config, language, existing_anime, needed_count):
                 "rating": rating,
                 "year": year
             })
+            print(f"Добавлено: {title} (TTID: {ttid})")
 
             if len(anime_list) >= needed_count:
                 break
 
+        print(f"Собрано {len(anime_list)} из {needed_count}")
+
         if len(anime_list) < needed_count:
             try:
-                next_button = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//span[contains(text(), '50 more')]/ancestor::button"))
+                print("Ищем кнопку '50 more'...")
+                next_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), '50 more')]/ancestor::button"))
                 )
+                print("Кнопка найдена, прокручиваем к ней...")
+                driver.execute_script("arguments[0].scrollIntoView(true);", next_button)
+                time.sleep(1)
+                print("Нажимаем кнопку...")
                 next_button.click()
-                page += 1
-            except:
-                print("Кнопка '50 more' не найдена, конец списка.")
+                print("Ждём подгрузки новых элементов...")
+                WebDriverWait(driver, 15).until(
+                    lambda driver: len(driver.find_elements(By.CLASS_NAME, "ipc-metadata-list-summary-item")) > len(anime_items)
+                )
+                time.sleep(config.DELAY)
+                attempts += 1
+            except Exception as e:
+                print(f"Не удалось подгрузить больше данных: {e}")
                 break
 
+    print(f"Всего собрано {len(anime_list)} элементов")
     driver.quit()
     return anime_list
 
@@ -207,7 +227,7 @@ def save_to_mongodb(data, config):
 
 
 def get_anilist_tags_and_genres(title, tags_file="available_tags.json", genres_file="available_genres.json"):
-    """Получает и фильтрует теги и жанры с AniList, используя переводы из JSON-файлов."""
+    """Получает и фильтрует теги, жанры и количество серий с AniList, используя переводы из JSON-файлов."""
     query = '''
     query ($search: String) {
         Media (search: $search, type: ANIME) {
@@ -215,6 +235,7 @@ def get_anilist_tags_and_genres(title, tags_file="available_tags.json", genres_f
                 name
             }
             genres
+            episodes
         }
     }
     '''
@@ -232,19 +253,24 @@ def get_anilist_tags_and_genres(title, tags_file="available_tags.json", genres_f
             available_tags = load_json(tags_file)
             available_genres = load_json(genres_file)
 
-            # Получаем теги и жанры
+            # Получаем теги, жанры и количество серий
             all_tags = [tag['name'] for tag in media.get('tags', [])]
             all_genres = media.get('genres', [])
+            episodes = media.get('episodes', None)  # None, если данных нет
 
             # Фильтрация и перевод тегов и жанров
             filtered_tags = [available_tags.get(tag, tag) for tag in all_tags if tag in available_tags]
             filtered_genres = [available_genres.get(genre, genre) for genre in all_genres if genre in available_genres]
 
-            return {"tags": filtered_tags, "genres": filtered_genres}
+            return {
+                "tags": filtered_tags,
+                "genres": filtered_genres,
+                "episodes": episodes
+            }
     except Exception as e:
         print(f"Ошибка при получении данных с AniList для {title}: {e}")
 
-    return {"tags": [], "genres": []}
+    return {"tags": [], "genres": [], "episodes": None}
 
 def load_json(file_path):
     """Загружает JSON-файл."""
@@ -258,7 +284,7 @@ def load_json(file_path):
         return {}
 # В основном скрипте добавляем загрузку тегов
 if __name__ == "__main__":
-    config = AnimeConfig(limit=20, delay=2)
+    config = AnimeConfig(limit=6385, delay=2)
 
     # Загружаем доступные теги и жанры
     available_tags = load_json("available_tags.json")
@@ -301,6 +327,7 @@ if __name__ == "__main__":
                 "PosterRu": tmdb_data["poster_path"],
                 "Backdrop": tmdb_data["backdrop_path"],
                 "OverviewRu": tmdb_data["overview_ru"],
+                "Episodes": anilist_data["episodes"],
                 "Tags": anilist_data["tags"],
                 "Genres": anilist_data["genres"]
             })

@@ -44,11 +44,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Список аниме из вашей базы
+// В вашем серверном файле (например, index.js)
 app.get('/api/anime', async (req, res) => {
   try {
-    const { genre, search } = req.query;
-    console.log('📌 Получен запрос с параметрами:', { genre, search });
+    const { genre, search, fields, limit, sort } = req.query;
+    console.log('📌 Получен запрос с параметрами:', { genre, search, fields, limit, sort });
 
     let query = {};
     if (genre) query.Genres = { $in: [genre] };
@@ -56,7 +56,12 @@ app.get('/api/anime', async (req, res) => {
 
     console.log('📌 Сформирован запрос к MongoDB:', query);
 
-    const animeList = await Anime.find(query, 'TitleRu PosterRu Genres TTID');
+    let dbQuery = Anime.find(query);
+    if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
+    if (limit) dbQuery = dbQuery.limit(parseInt(limit));
+    if (sort) dbQuery = dbQuery.sort(sort); // Например, "TMDbRating" или "-TMDbRating"
+
+    const animeList = await dbQuery;
     console.log(`📌 Найдено:`, animeList.length);
     res.json(animeList);
   } catch (error) {

@@ -20,7 +20,7 @@ load_dotenv()
 
 
 class AnimeConfig:
-    def __init__(self, limit=6385, delay=2):
+    def __init__(self, limit=1500, delay=2):
         self.LIMIT = limit
         self.DELAY = delay
         self.TMDB_API_KEY = os.getenv('TMDB_API_KEY')
@@ -284,7 +284,7 @@ def load_json(file_path):
         return {}
 # В основном скрипте добавляем загрузку тегов
 if __name__ == "__main__":
-    config = AnimeConfig(limit=6385, delay=2)
+    config = AnimeConfig(limit=1500, delay=2)
 
     # Загружаем доступные теги и жанры
     available_tags = load_json("available_tags.json")

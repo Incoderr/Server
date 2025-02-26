@@ -50,6 +50,7 @@ const fetchAnilistData = async (sort, perPage) => {
   `;
   const variables = { page: 1, perPage, sort: [sort] };
 
+  console.log('📌 Запрос к AniList:', { query, variables });
   const response = await fetch('https://graphql.anilist.co', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -58,10 +59,10 @@ const fetchAnilistData = async (sort, perPage) => {
 
   if (!response.ok) throw new Error(`AniList API error: ${response.status}`);
   const json = await response.json();
+  console.log('📌 Ответ от AniList:', json.data.Page.media.length, 'элементов');
   return json.data.Page.media;
 };
 
-// Функция фильтрации и объединения данных
 const filterAndUseMongoData = async (anilistData, dbQueryParams) => {
   const { fields, limit, sort } = dbQueryParams;
   let dbQuery = Anime.find({});
@@ -70,9 +71,10 @@ const filterAndUseMongoData = async (anilistData, dbQueryParams) => {
   if (sort) dbQuery = dbQuery.sort(sort);
 
   const myDatabase = await dbQuery;
+  console.log('📌 Данные из MongoDB:', myDatabase.length, 'элементов');
 
   const seenIds = new Set();
-  return myDatabase
+  const result = myDatabase
     .map(dbAnime => {
       const anilistEntry = anilistData.find(anime => 
         (dbAnime.TitleRu && anime.title.romaji && dbAnime.TitleRu.toLowerCase() === anime.title.romaji.toLowerCase()) ||
@@ -98,17 +100,17 @@ const filterAndUseMongoData = async (anilistData, dbQueryParams) => {
       };
     })
     .filter(Boolean);
+
+  console.log('📌 Результат фильтрации:', result.length, 'элементов');
+  return result;
 };
 
-// Новый маршрут для объединенных данных
 app.get('/api/combined', async (req, res) => {
   try {
     const { sort = 'TRENDING_DESC', perPage = 5, fields, limit, dbSort } = req.query;
+    console.log('📌 Параметры запроса /api/combined:', { sort, perPage, fields, limit, dbSort });
 
-    // 1. Получаем данные с AniList
     const anilistData = await fetchAnilistData(sort, parseInt(perPage));
-
-    // 2. Фильтруем и объединяем с MongoDB
     const dbQueryParams = {
       fields: fields || "TitleRu,TitleEng,Episodes,Year,TMDbRating,IMDbRating,OverviewRu,PosterRu,Backdrop,TTID,Genres,Status",
       limit: limit || perPage,
@@ -116,12 +118,14 @@ app.get('/api/combined', async (req, res) => {
     };
     const combinedData = await filterAndUseMongoData(anilistData, dbQueryParams);
 
-    res.json(combinedData.slice(0, parseInt(perPage))); // Ограничиваем результат
+    console.log('📌 Отправляем данные фронтенду:', combinedData.length, 'элементов');
+    res.json(combinedData.slice(0, parseInt(perPage)));
   } catch (error) {
-    console.error('❌ Ошибка в /api/combined:', error);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('❌ Ошибка в /api/combined:', error.message);
+    res.status(500).json({ error: 'Ошибка сервера', details: error.message });
   }
 });
+
 
 // Существующие маршруты остаются без изменений
 app.get('/api/anime', async (req, res) => { /* ... */ });

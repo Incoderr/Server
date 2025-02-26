@@ -50,7 +50,6 @@ const fetchAnilistData = async (sort, perPage) => {
   `;
   const variables = { page: 1, perPage, sort: [sort] };
 
-  console.log('📌 Запрос к AniList:', { query, variables });
   const response = await fetch('https://graphql.anilist.co', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -59,77 +58,80 @@ const fetchAnilistData = async (sort, perPage) => {
 
   if (!response.ok) throw new Error(`AniList API error: ${response.status}`);
   const json = await response.json();
-  console.log('📌 Ответ от AniList:', json.data.Page.media.length, 'элементов');
   return json.data.Page.media;
 };
 
-const filterAndUseMongoData = async (anilistData, dbQueryParams) => {
-  const { fields, limit, sort } = dbQueryParams;
+// Функция обогащения данных из MongoDB с учетом уникальности
+const enrichWithMongoData = async (anilistData, dbQueryParams, usedIds) => {
+  const { fields, limit } = dbQueryParams;
   let dbQuery = Anime.find({});
   if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
   if (limit) dbQuery = dbQuery.limit(parseInt(limit));
-  if (sort) dbQuery = dbQuery.sort(sort);
 
   const myDatabase = await dbQuery;
-  console.log('📌 Данные из MongoDB:', myDatabase.length, 'элементов');
 
-  const seenIds = new Set();
-  const result = myDatabase
-    .map(dbAnime => {
-      const anilistEntry = anilistData.find(anime => 
-        (dbAnime.TitleRu && anime.title.romaji && dbAnime.TitleRu.toLowerCase() === anime.title.romaji.toLowerCase()) ||
-        (dbAnime.TitleEng && anime.title.english && dbAnime.TitleEng.toLowerCase() === anime.title.english.toLowerCase())
-      );
-      const uniqueId = anilistEntry?.id || dbAnime.TTID || Date.now() + Math.random();
-      if (seenIds.has(uniqueId)) return null;
-      seenIds.add(uniqueId);
+  const result = [];
+  for (const anilistAnime of anilistData) {
+    const dbAnime = myDatabase.find(db => 
+      (db.TitleRu && anilistAnime.title.romaji && db.TitleRu.toLowerCase() === anilistAnime.title.romaji.toLowerCase()) ||
+      (db.TitleEng && anilistAnime.title.english && db.TitleEng.toLowerCase() === anilistAnime.title.english.toLowerCase())
+    );
 
-      return {
-        id: uniqueId,
-        titleRu: dbAnime.TitleRu || "Название отсутствует",
-        titleEng: dbAnime.TitleEng || null,
-        episodes: dbAnime.Episodes || "??",
-        year: dbAnime.Year || null,
-        rating: dbAnime.TMDbRating || dbAnime.IMDbRating || "N/A",
-        description: dbAnime.OverviewRu || "Описание отсутствует",
-        poster: dbAnime.PosterRu || "https://via.placeholder.com/500x750?text=Нет+постера",
-        backdrop: dbAnime.Backdrop || "https://via.placeholder.com/1920x1080?text=Нет+фона",
-        ttid: dbAnime.TTID || null,
-        genres: dbAnime.Genres || [],
-        status: dbAnime.Status || null,
-      };
-    })
-    .filter(Boolean);
+    const uniqueId = anilistAnime.id || (dbAnime?.TTID ?? Date.now() + Math.random());
+    if (usedIds.has(uniqueId)) continue; // Пропускаем, если ID уже использован
 
-  console.log('📌 Результат фильтрации:', result.length, 'элементов');
+    usedIds.add(uniqueId);
+    result.push({
+      id: uniqueId,
+      titleRu: dbAnime?.TitleRu || anilistAnime.title.romaji || "Название отсутствует",
+      titleEng: dbAnime?.TitleEng || anilistAnime.title.english || null,
+      episodes: dbAnime?.Episodes || anilistAnime.episodes || "??",
+      year: dbAnime?.Year || null,
+      rating: dbAnime?.TMDbRating || dbAnime?.IMDbRating || (anilistAnime.averageScore / 10) || "N/A",
+      description: dbAnime?.OverviewRu || anilistAnime.description || "Описание отсутствует",
+      poster: dbAnime?.PosterRu || anilistAnime.coverImage.large || "https://via.placeholder.com/500x750?text=Нет+постера",
+      backdrop: dbAnime?.Backdrop || "https://via.placeholder.com/1920x1080?text=Нет+фона",
+      ttid: dbAnime?.TTID || null,
+      genres: dbAnime?.Genres || [],
+      status: dbAnime?.Status || null,
+    });
+
+    if (result.length >= dbQueryParams.perPage) break; // Ограничиваем результат
+  }
+
   return result;
 };
 
-app.get('/api/combined', async (req, res) => {
+// Маршрут для всех категорий с уникальными данными
+app.get('/api/combined-all', async (req, res) => {
   try {
-    const { sort = 'TRENDING_DESC', perPage = 5, fields, limit, dbSort } = req.query;
-    console.log('📌 Параметры запроса /api/combined:', { sort, perPage, fields, limit, dbSort });
+    const categories = [
+      { sort: 'TRENDING_DESC', perPage: 5, label: 'trending' }, // Для MainSwiper
+      { sort: 'POPULARITY_DESC', perPage: 20, label: 'popular' },
+      { sort: 'TRENDING_DESC', perPage: 20, label: 'trending_slider' },
+      { sort: 'START_DATE_DESC', perPage: 20, label: 'new' },
+      { sort: 'SCORE_DESC', perPage: 10, label: 'top10' },
+    ];
 
-    const anilistData = await fetchAnilistData(sort, parseInt(perPage));
-    const dbQueryParams = {
-      fields: fields || "TitleRu,TitleEng,Episodes,Year,TMDbRating,IMDbRating,OverviewRu,PosterRu,Backdrop,TTID,Genres,Status",
-      limit: limit || perPage,
-      sort: dbSort || null,
-    };
-    const combinedData = await filterAndUseMongoData(anilistData, dbQueryParams);
+    const usedIds = new Set(); // Отслеживаем использованные ID
+    const result = {};
 
-    console.log('📌 Отправляем данные фронтенду:', combinedData.length, 'элементов');
-    res.json(combinedData.slice(0, parseInt(perPage)));
+    for (const category of categories) {
+      const anilistData = await fetchAnilistData(category.sort, category.perPage * 2); // Берем больше данных для выбора
+      const dbQueryParams = {
+        fields: "TitleRu,TitleEng,Episodes,Year,TMDbRating,IMDbRating,OverviewRu,PosterRu,Backdrop,TTID,Genres,Status",
+        limit: category.perPage * 2,
+        perPage: category.perPage,
+      };
+      const enrichedData = await enrichWithMongoData(anilistData, dbQueryParams, usedIds);
+      result[category.label] = enrichedData.slice(0, category.perPage); // Ограничиваем до нужного количества
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('❌ Ошибка в /api/combined:', error.message);
-    res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+    console.error('❌ Ошибка в /api/combined-all:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
-
-
-// Существующие маршруты остаются без изменений
-app.get('/api/anime', async (req, res) => { /* ... */ });
-app.get('/api/anime/:ttid', async (req, res) => { /* ... */ });
-app.post('/api/anilist', async (req, res) => { /* ... */ });
 
 module.exports = app;

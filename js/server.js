@@ -26,7 +26,7 @@ const animeSchema = new mongoose.Schema({
   Poster: String,
   imdbID: String,
   Year: String,
-  IMDbRating: String,
+  imdbRating: String,
   TMDbRating: Number,
   Status: String,
   Backdrop: String,

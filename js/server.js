@@ -150,7 +150,24 @@ app.post('/api/favorites', authenticateToken, async (req, res) => {
     
     res.json({ message: 'Добавлено в избранное', favorites: user.favorites });
   } catch (error) {
-    res.status(400).json({ message: 'Ошибка при добавлении в избранное' });
+    res.status(400).json({ message: 'Ошибка при добавлении в избранное', error: error.message });
+  }
+});
+
+// Новый маршрут для удаления из избранного
+app.delete('/api/favorites', authenticateToken, async (req, res) => {
+  try {
+    const { imdbID } = req.body;
+    const user = await User.findById(req.user.id);
+    
+    if (user.favorites.includes(imdbID)) {
+      user.favorites = user.favorites.filter(id => id !== imdbID);
+      await user.save();
+    }
+    
+    res.json({ message: 'Удалено из избранного', favorites: user.favorites });
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка при удалении из избранного', error: error.message });
   }
 });
 

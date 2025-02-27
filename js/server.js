@@ -121,7 +121,7 @@ app.post('/api/anilist', async (req, res) => {
     const anilistMedia = data.data?.Page?.media || [];
     const enhancedMedia = await Promise.all(
       anilistMedia.map(async (anime) => {
-        const dbAnime = await Anime.findOne({ TitleRu: anime.title.romaji });
+        const dbAnime = await Anime.findOne({ Title: anime.title.romaji });
         return {
           ...anime,
           ttid: dbAnime?.TTID || null,

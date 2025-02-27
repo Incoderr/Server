@@ -79,11 +79,11 @@ app.get('/api/anime', async (req, res) => {
 // Информация об аниме по TTID
 app.get('/api/anime/:ttid', async (req, res) => {
   try {
-    const { ttid } = req.params;
+    const { imdbID } = req.params;
     console.log('📌 Запрос аниме с TTID:', ttid);
 
     // Используем imdbID вместо TTID, если это поле используется как идентификатор
-    const anime = await Anime.findOne({ imdbID: ttid });
+    const anime = await Anime.findOne({ imdbID: imdbID });
     if (!anime) {
       return res.status(404).json({ error: 'Аниме не найдено' });
     }

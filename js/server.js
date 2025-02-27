@@ -148,12 +148,13 @@ app.post('/api/favorites', authenticateToken, async (req, res) => {
       await user.save();
     }
     
+    res.json({ success: true, favorites: user.favorites }); // Минимальный ответ
   } catch (error) {
-    res.status(400).json({ message: 'Ошибка при добавлении в избранное', error: error.message });
+    res.status(400).json({ success: false, message: 'Ошибка при добавлении в избранное', error: error.message });
   }
 });
 
-// Новый маршрут для удаления из избранного
+// Удаление из избранного
 app.delete('/api/favorites', authenticateToken, async (req, res) => {
   try {
     const { imdbID } = req.body;
@@ -164,9 +165,9 @@ app.delete('/api/favorites', authenticateToken, async (req, res) => {
       await user.save();
     }
     
-    res.json({ message: 'Удалено из избранного', favorites: user.favorites });
+    res.json({ success: true, favorites: user.favorites }); // Минимальный ответ
   } catch (error) {
-    res.status(400).json({ message: 'Ошибка при удалении из избранного', error: error.message });
+    res.status(400).json({ success: false, message: 'Ошибка при удалении из избранного', error: error.message });
   }
 });
 

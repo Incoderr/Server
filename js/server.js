@@ -51,8 +51,8 @@ app.get('/api/anime', async (req, res) => {
     console.log('📌 Получен запрос с параметрами:', { genre, search, fields, limit, sort });
 
     let query = {};
-    // Исправлено: используем Genre вместо Genres, согласно схеме
-    if (genre) query.Genre = { $in: [genre] };
+    // Фильтрация по строке Genre с использованием $regex
+    if (genre) query.Genre = { $regex: new RegExp(genre, 'i') }; // Частичное совпадение, регистронезависимо
     if (search) query.Title = { $regex: new RegExp(search, 'i') };
 
     console.log('📌 Сформирован запрос к MongoDB:', query);
@@ -62,10 +62,8 @@ app.get('/api/anime', async (req, res) => {
     if (limit) dbQuery = dbQuery.limit(parseInt(limit));
     if (sort) dbQuery = dbQuery.sort(sort);
 
-    // Получаем все результаты
     const animeList = await dbQuery;
-
-    // Фильтруем дубликаты по imdbID (или TTID)
+    // Убираем дубликаты по imdbID
     const uniqueAnime = Array.from(new Map(animeList.map(item => [item.imdbID, item])).values());
     
     console.log(`📌 Найдено записей: ${animeList.length}, после фильтрации дубликатов: ${uniqueAnime.length}`);

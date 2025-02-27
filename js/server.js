@@ -32,7 +32,7 @@ const animeSchema = new mongoose.Schema({
   Backdrop: String,
   OverviewRu: String,
   Tags: [String],
-  Genres: [String],
+  Genre: String,
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);

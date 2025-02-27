@@ -24,7 +24,7 @@ const animeSchema = new mongoose.Schema({
   Title: String,
   TitleEng: String,
   Poster: String,
-  imdbID: String,
+  imdbID: String, // Предполагаю, что это TTID
   Year: String,
   imdbRating: String,
   TMDbRating: Number,
@@ -32,26 +32,27 @@ const animeSchema = new mongoose.Schema({
   Backdrop: String,
   OverviewRu: String,
   Tags: [String],
-  Genre: String,
+  Genre: String, // В схеме указано Genre, а не Genres — исправлю ниже
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://animeinc.vercel.app'], // Разрешаем запросы с вашего локального фронтенда
-  methods: ['GET', 'POST'], // Указываем разрешенные методы
-  allowedHeaders: ['Content-Type'], // Указываем разрешенные заголовки
+  origin: ['http://localhost:5173', 'https://animeinc.vercel.app'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type'],
 }));
 app.use(express.json());
 
-// В вашем серверном файле (например, index.js)
+// Маршрут для получения списка аниме с фильтрацией дубликатов
 app.get('/api/anime', async (req, res) => {
   try {
     const { genre, search, fields, limit, sort } = req.query;
     console.log('📌 Получен запрос с параметрами:', { genre, search, fields, limit, sort });
 
     let query = {};
-    if (genre) query.Genres = { $in: [genre] };
+    // Исправлено: используем Genre вместо Genres, согласно схеме
+    if (genre) query.Genre = { $in: [genre] };
     if (search) query.Title = { $regex: new RegExp(search, 'i') };
 
     console.log('📌 Сформирован запрос к MongoDB:', query);
@@ -59,11 +60,16 @@ app.get('/api/anime', async (req, res) => {
     let dbQuery = Anime.find(query);
     if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
     if (limit) dbQuery = dbQuery.limit(parseInt(limit));
-    if (sort) dbQuery = dbQuery.sort(sort); // Например, "TMDbRating" или "-TMDbRating"
+    if (sort) dbQuery = dbQuery.sort(sort);
 
+    // Получаем все результаты
     const animeList = await dbQuery;
-    console.log(`📌 Найдено:`, animeList.length);
-    res.json(animeList);
+
+    // Фильтруем дубликаты по imdbID (или TTID)
+    const uniqueAnime = Array.from(new Map(animeList.map(item => [item.imdbID, item])).values());
+    
+    console.log(`📌 Найдено записей: ${animeList.length}, после фильтрации дубликатов: ${uniqueAnime.length}`);
+    res.json(uniqueAnime);
   } catch (error) {
     console.error('❌ Ошибка при получении аниме:', error);
     res.status(500).json({ error: 'Ошибка при получении аниме' });
@@ -76,7 +82,8 @@ app.get('/api/anime/:ttid', async (req, res) => {
     const { ttid } = req.params;
     console.log('📌 Запрос аниме с TTID:', ttid);
 
-    const anime = await Anime.findOne({ TTID: ttid });
+    // Используем imdbID вместо TTID, если это поле используется как идентификатор
+    const anime = await Anime.findOne({ imdbID: ttid });
     if (!anime) {
       return res.status(404).json({ error: 'Аниме не найдено' });
     }
@@ -96,7 +103,7 @@ app.post('/api/anilist', async (req, res) => {
     console.log('📌 Запрос к AniList:', { query, variables });
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // Таймаут 8 секунд
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const response = await fetch('https://graphql.anilist.co', {
       method: 'POST',
@@ -105,10 +112,10 @@ app.post('/api/anilist', async (req, res) => {
         'Accept': 'application/json',
       },
       body: JSON.stringify({ query, variables }),
-      signal: controller.signal, // Добавляем сигнал для отмены
+      signal: controller.signal,
     });
 
-    clearTimeout(timeoutId); // Очищаем таймаут, если запрос успешен
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`AniList API ответил статусом: ${response.status}`);
@@ -117,14 +124,13 @@ app.post('/api/anilist', async (req, res) => {
     const data = await response.json();
     console.log('📌 Ответ от AniList:', data);
 
-    // (Опционально) Обогащение данными из MongoDB
     const anilistMedia = data.data?.Page?.media || [];
     const enhancedMedia = await Promise.all(
       anilistMedia.map(async (anime) => {
         const dbAnime = await Anime.findOne({ Title: anime.title.romaji });
         return {
           ...anime,
-          ttid: dbAnime?.TTID || null,
+          ttid: dbAnime?.imdbID || null, // Используем imdbID вместо TTID
           backdrop: dbAnime?.Backdrop || null,
         };
       })

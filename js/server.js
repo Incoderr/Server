@@ -21,10 +21,10 @@ mongoose
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 const animeSchema = new mongoose.Schema({
-  TitleRu: String,
+  Title: String,
   TitleEng: String,
-  PosterRu: String,
-  TTID: String,
+  Poster: String,
+  imdbID: String,
   Year: String,
   IMDbRating: String,
   TMDbRating: Number,

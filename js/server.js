@@ -148,7 +148,6 @@ app.post('/api/favorites', authenticateToken, async (req, res) => {
       await user.save();
     }
     
-    res.json({ message: 'Добавлено в избранное', favorites: user.favorites });
   } catch (error) {
     res.status(400).json({ message: 'Ошибка при добавлении в избранное', error: error.message });
   }

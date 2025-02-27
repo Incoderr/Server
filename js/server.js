@@ -2,10 +2,20 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const fetch = require('node-fetch');
 
 const app = express();
 
+app.use(cors({
+  origin: ['http://localhost:5173', 'https://animeinc.vercel.app'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json());
+
+// Подключение к MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
@@ -20,11 +30,23 @@ mongoose
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
+// Схема пользователя
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  favorites: [{ type: String }], // массив ID избранного
+  avatar: { type: String, default: '/default-avatar.png' }
+}, { collection: 'users' });
+
+const User = mongoose.model('User', userSchema);
+
+// Схема аниме (оставляем как есть)
 const animeSchema = new mongoose.Schema({
   Title: String,
   TitleEng: String,
   Poster: String,
-  imdbID: String, // Предполагаю, что это TTID
+  imdbID: String,
   Year: String,
   imdbRating: String,
   TMDbRating: Number,
@@ -32,30 +54,113 @@ const animeSchema = new mongoose.Schema({
   Backdrop: String,
   OverviewRu: String,
   Tags: [String],
-  Genre: String, // В схеме указано Genre, а не Genres — исправлю ниже
+  Genre: String,
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'https://animeinc.vercel.app'],
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type'],
-}));
-app.use(express.json());
+const SECRET_KEY = process.env.JWT_SECRET || 'your-secret-key';
 
-// Маршрут для получения списка аниме с фильтрацией дубликатов
+// Middleware для аутентификации
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Требуется авторизация' });
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Недействительный токен' });
+    req.user = user;
+    next();
+  });
+};
+
+// Регистрация
+app.post('/api/register', async (req, res) => {
+  try {
+    const { login: username, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    const user = new User({
+      username,
+      email,
+      password: hashedPassword
+    });
+
+    await user.save();
+    
+    const token = jwt.sign({ id: user._id, username: user.username }, SECRET_KEY);
+    res.status(201).json({ 
+      token, 
+      user: { 
+        id: user._id, 
+        username: user.username, 
+        avatar: user.avatar 
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка регистрации', error: error.message });
+  }
+});
+
+// Вход
+app.post('/api/login', async (req, res) => {
+  try {
+    const { login, password } = req.body;
+    const user = await User.findOne({
+      $or: [{ username: login }, { email: login }]
+    });
+
+    if (!user || !await bcrypt.compare(password, user.password)) {
+      return res.status(401).json({ message: 'Неверные данные' });
+    }
+
+    const token = jwt.sign({ id: user._id, username: user.username }, SECRET_KEY);
+    res.json({ 
+      token, 
+      user: { 
+        id: user._id, 
+        username: user.username, 
+        avatar: user.avatar 
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка входа', error: error.message });
+  }
+});
+
+// Профиль
+app.get('/api/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка получения профиля' });
+  }
+});
+
+// Добавление в избранное
+app.post('/api/favorites', authenticateToken, async (req, res) => {
+  try {
+    const { imdbID } = req.body;
+    const user = await User.findById(req.user.id);
+    
+    if (!user.favorites.includes(imdbID)) {
+      user.favorites.push(imdbID);
+      await user.save();
+    }
+    
+    res.json({ message: 'Добавлено в избранное', favorites: user.favorites });
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка при добавлении в избранное' });
+  }
+});
+
+// Существующие маршруты для аниме
 app.get('/api/anime', async (req, res) => {
   try {
     const { genre, search, fields, limit, sort } = req.query;
-    console.log('📌 Получен запрос с параметрами:', { genre, search, fields, limit, sort });
-
     let query = {};
-    // Фильтрация по строке Genre с использованием $regex
-    if (genre) query.Genre = { $regex: new RegExp(genre, 'i') }; // Частичное совпадение, регистронезависимо
+    if (genre) query.Genre = { $regex: new RegExp(genre, 'i') };
     if (search) query.Title = { $regex: new RegExp(search, 'i') };
-
-    console.log('📌 Сформирован запрос к MongoDB:', query);
 
     let dbQuery = Anime.find(query);
     if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
@@ -63,33 +168,20 @@ app.get('/api/anime', async (req, res) => {
     if (sort) dbQuery = dbQuery.sort(sort);
 
     const animeList = await dbQuery;
-    // Убираем дубликаты по imdbID
     const uniqueAnime = Array.from(new Map(animeList.map(item => [item.imdbID, item])).values());
-    
-    console.log(`📌 Найдено записей: ${animeList.length}, после фильтрации дубликатов: ${uniqueAnime.length}`);
     res.json(uniqueAnime);
   } catch (error) {
-    console.error('❌ Ошибка при получении аниме:', error);
     res.status(500).json({ error: 'Ошибка при получении аниме' });
   }
 });
 
-// Информация об аниме по TTID
 app.get('/api/anime/:imdbID', async (req, res) => {
   try {
     const { imdbID } = req.params;
-    console.log('📌 Запрос аниме с TTID:', imdbID);
-
-    // Используем imdbID вместо TTID, если это поле используется как идентификатор
-    const anime = await Anime.findOne({ imdbID: imdbID });
-    if (!anime) {
-      return res.status(404).json({ error: 'Аниме не найдено' });
-    }
-
-    console.log('📌 Найдено аниме:', anime);
+    const anime = await Anime.findOne({ imdbID });
+    if (!anime) return res.status(404).json({ error: 'Аниме не найдено' });
     res.json(anime);
   } catch (error) {
-    console.error('❌ Ошибка при получении аниме:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });

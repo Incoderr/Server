@@ -77,10 +77,10 @@ app.get('/api/anime', async (req, res) => {
 });
 
 // Информация об аниме по TTID
-app.get('/api/anime/:ttid', async (req, res) => {
+app.get('/api/anime/:imdbID', async (req, res) => {
   try {
     const { imdbID } = req.params;
-    console.log('📌 Запрос аниме с TTID:', ttid);
+    console.log('📌 Запрос аниме с TTID:', imdbID);
 
     // Используем imdbID вместо TTID, если это поле используется как идентификатор
     const anime = await Anime.findOne({ imdbID: imdbID });
@@ -130,7 +130,7 @@ app.post('/api/anilist', async (req, res) => {
         const dbAnime = await Anime.findOne({ Title: anime.title.romaji });
         return {
           ...anime,
-          ttid: dbAnime?.imdbID || null, // Используем imdbID вместо TTID
+          imdbID: dbAnime?.imdbID || null, // Используем imdbID вместо TTID
           backdrop: dbAnime?.Backdrop || null,
         };
       })

@@ -52,7 +52,7 @@ app.get('/api/anime', async (req, res) => {
 
     let query = {};
     if (genre) query.Genres = { $in: [genre] };
-    if (search) query.TitleRu = { $regex: new RegExp(search, 'i') };
+    if (search) query.Title = { $regex: new RegExp(search, 'i') };
 
     console.log('📌 Сформирован запрос к MongoDB:', query);
 

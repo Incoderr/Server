@@ -134,9 +134,13 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/profile', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
+    const favorites = user.favorites || [];
+    const favoritesData = await Promise.all(
+      favorites.map((imdbID) => Anime.findOne({ imdbID }).catch(() => null))
+    ).then(results => results.filter(Boolean));
+    res.json({ ...user.toObject(), favoritesData });
   } catch (error) {
-    res.status(400).json({ message: 'Ошибка получения профиля' });
+    res.status(500).json({ message: 'Ошибка сервера' });
   }
 });
 

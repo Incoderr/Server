@@ -87,24 +87,29 @@ const authenticateToken = (req, res, next) => {
 // Регистрация
 app.post('/api/register', async (req, res) => {
   try {
-    const { login: username, email, password } = req.body;
+    const { login: username, email, password, role = 'user' } = req.body; // По умолчанию user
+    if (role !== 'user' && role !== 'admin') {
+      return res.status(400).json({ message: 'Недопустимая роль' });
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const user = new User({
       username,
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      role,
     });
 
     await user.save();
     
-    const token = jwt.sign({ id: user._id, username: user.username }, SECRET_KEY);
+    const token = jwt.sign({ id: user._id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'your-secret-key');
     res.status(201).json({ 
       token, 
       user: { 
         id: user._id, 
         username: user.username, 
-        avatar: user.avatar 
+        avatar: user.avatar, 
+        role: user.role 
       }
     });
   } catch (error) {
@@ -124,13 +129,14 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'Неверные данные' });
     }
 
-    const token = jwt.sign({ id: user._id, username: user.username }, SECRET_KEY);
+    const token = jwt.sign({ id: user._id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'your-secret-key');
     res.json({ 
       token, 
       user: { 
         id: user._id, 
         username: user.username, 
-        avatar: user.avatar 
+        avatar: user.avatar, 
+        role: user.role 
       }
     });
   } catch (error) {

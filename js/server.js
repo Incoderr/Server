@@ -63,7 +63,7 @@ const animeSchema = new mongoose.Schema({
   imdbRating: { type: String }, // Рейтинг IMDb
   imdbID: { type: String, required: true, unique: true }, // Уникальный идентификатор IMDb
   Episodes: { type: Number }, // Количество серий (числовой тип)
-  Genre: { type: String, required: true }, // Жанры
+  Genre: { type: [String], required: true, default: [] }, // Жанры (массив строк)
   Tags: { type: [String], default: [] }, // Теги (массив строк, по умолчанию пустой)
   OverviewRu: { type: String, required: true }, // Описание на русском
 }, { collection: 'anime_list' });

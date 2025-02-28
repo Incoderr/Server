@@ -38,11 +38,19 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  favorites: [{ type: String }], // массив ID избранного
-  avatar: { type: String, default: './public/default_avatar.jpg' }
+  favorites: [{ type: String }],
+  avatar: { type: String, default: '/default-avatar.png' },
+  role: { type: String, default: 'user', enum: ['user', 'admin'] }, // Роль: user или admin
 }, { collection: 'users' });
 
 const User = mongoose.model('User', userSchema);
+
+const isAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Доступ запрещён: требуется роль админа' });
+  }
+  next();
+};
 
 // Схема аниме (оставляем как есть)
 const animeSchema = new mongoose.Schema({

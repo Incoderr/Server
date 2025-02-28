@@ -291,10 +291,12 @@ app.post('/api/anilist', async (req, res) => {
 // admin
 // Получение всех аниме
 app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
+  console.log('Admin request for anime list by user:', req.user);
   try {
-    const animeList = await Anime.find();
+    const animeList = await Anime.find().select('Title TitleEng Poster Backdrop Year Released imdbRating imdbID Episodes Genre Tags OverviewRu');
     res.json(animeList);
   } catch (error) {
+    console.error('Ошибка при получении списка аниме:', error);
     res.status(500).json({ message: 'Ошибка при получении списка аниме', error });
   }
 });
@@ -303,10 +305,23 @@ app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
 app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   try {
     const animeData = req.body;
+    if (!animeData.imdbID || !animeData.Title || !animeData.TitleEng || !animeData.Poster || !animeData.Year || !animeData.Released || !animeData.Genre || !animeData.OverviewRu) {
+      return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
+    }
+    // Преобразуем Episodes в число, если оно есть
+    if (animeData.Episodes) {
+      animeData.Episodes = parseInt(animeData.Episodes) || 0;
+    }
+    // Преобразуем Tags в массив, если строка
+    if (typeof animeData.Tags === 'string') {
+      animeData.Tags = animeData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
+    }
+
     const newAnime = new Anime(animeData);
     await newAnime.save();
     res.status(201).json(newAnime);
   } catch (error) {
+    console.error('Ошибка при добавлении аниме:', error);
     res.status(400).json({ message: 'Ошибка при добавлении аниме', error });
   }
 });
@@ -316,6 +331,19 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
   try {
     const { imdbID } = req.params;
     const updatedData = req.body;
+    // Проверка обязательных полей
+    if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.Genre || !updatedData.OverviewRu) {
+      return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
+    }
+    // Преобразуем Episodes в число
+    if (updatedData.Episodes) {
+      updatedData.Episodes = parseInt(updatedData.Episodes) || 0;
+    }
+    // Преобразуем Tags в массив
+    if (typeof updatedData.Tags === 'string') {
+      updatedData.Tags = updatedData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
+    }
+
     const updatedAnime = await Anime.findOneAndUpdate(
       { imdbID },
       updatedData,
@@ -324,6 +352,7 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
     if (!updatedAnime) return res.status(404).json({ message: 'Аниме не найдено' });
     res.json(updatedAnime);
   } catch (error) {
+    console.error('Ошибка при редактировании аниме:', error);
     res.status(400).json({ message: 'Ошибка при редактировании аниме', error });
   }
 });

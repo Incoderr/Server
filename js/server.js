@@ -260,5 +260,55 @@ app.post('/api/anilist', async (req, res) => {
     }
   }
 });
+// admin
+// Получение всех аниме
+app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const animeList = await Anime.find();
+    res.json(animeList);
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка при получении списка аниме', error });
+  }
+});
 
+// Добавление нового аниме
+app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const animeData = req.body;
+    const newAnime = new Anime(animeData);
+    await newAnime.save();
+    res.status(201).json(newAnime);
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка при добавлении аниме', error });
+  }
+});
+
+// Редактирование аниме
+app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { imdbID } = req.params;
+    const updatedData = req.body;
+    const updatedAnime = await Anime.findOneAndUpdate(
+      { imdbID },
+      updatedData,
+      { new: true, runValidators: true }
+    );
+    if (!updatedAnime) return res.status(404).json({ message: 'Аниме не найдено' });
+    res.json(updatedAnime);
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка при редактировании аниме', error });
+  }
+});
+
+// Удаление аниме
+app.delete('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const { imdbID } = req.params;
+    const deletedAnime = await Anime.findOneAndDelete({ imdbID });
+    if (!deletedAnime) return res.status(404).json({ message: 'Аниме не найдено' });
+    res.json({ message: 'Аниме удалено', imdbID });
+  } catch (error) {
+    res.status(400).json({ message: 'Ошибка при удалении аниме', error });
+  }
+});
 module.exports = app;

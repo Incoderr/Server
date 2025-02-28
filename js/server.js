@@ -54,18 +54,18 @@ const isAdmin = (req, res, next) => {
 
 // Схема аниме (оставляем как есть)
 const animeSchema = new mongoose.Schema({
-  Title: String,
-  TitleEng: String,
-  Poster: String,
-  imdbID: String,
-  Year: String,
-  imdbRating: String,
-  TMDbRating: Number,
-  Status: String,
-  Backdrop: String,
-  OverviewRu: String,
-  Tags: [String],
-  Genre: String,
+  Title: { type: String, required: true }, // Русское название
+  TitleEng: { type: String, required: true }, // Оригинальное название
+  Poster: { type: String, required: true }, // URL постера
+  Backdrop: { type: String }, // URL бэкдропа (необязательное поле)
+  Year: { type: String, required: true }, // Год выпуска
+  Released: { type: String, required: true }, // Дата релиза
+  imdbRating: { type: String }, // Рейтинг IMDb
+  imdbID: { type: String, required: true, unique: true }, // Уникальный идентификатор IMDb
+  Episodes: { type: Number }, // Количество серий (числовой тип)
+  Genre: { type: String, required: true }, // Жанры
+  Tags: { type: [String], default: [] }, // Теги (массив строк, по умолчанию пустой)
+  OverviewRu: { type: String, required: true }, // Описание на русском
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);
@@ -198,18 +198,31 @@ app.get('/api/anime', async (req, res) => {
     const { genre, search, fields, limit, sort } = req.query;
     let query = {};
     if (genre) query.Genre = { $regex: new RegExp(genre, 'i') };
-    if (search) query.Title = { $regex: new RegExp(search, 'i') };
+    if (search) {
+      query.$or = [
+        { Title: { $regex: new RegExp(search, 'i') } },
+        { TitleEng: { $regex: new RegExp(search, 'i') } }
+      ]; // Поиск по русскому и оригинальному названию
+    }
 
     let dbQuery = Anime.find(query);
     if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
-    if (limit) dbQuery = dbQuery.limit(parseInt(limit));
+    if (limit) dbQuery = dbQuery.limit(parseInt(limit) || 10); // По умолчанию лимит 10
     if (sort) dbQuery = dbQuery.sort(sort);
 
     const animeList = await dbQuery;
-    const uniqueAnime = Array.from(new Map(animeList.map(item => [item.imdbID, item])).values());
+    const uniqueAnime = Array.from(
+      new Map(
+        animeList
+          .filter(item => item.imdbID) // Фильтруем записи без imdbID
+          .map(item => [item.imdbID, item])
+      ).values()
+    );
+    if (uniqueAnime.length === 0) return res.status(404).json({ message: 'Аниме не найдено' });
     res.json(uniqueAnime);
   } catch (error) {
-    res.status(500).json({ error: 'Ошибка при получении аниме' });
+    console.error('Ошибка при получении аниме:', error);
+    res.status(500).json({ message: 'Ошибка при получении аниме', error });
   }
 });
 
@@ -217,10 +230,11 @@ app.get('/api/anime/:imdbID', async (req, res) => {
   try {
     const { imdbID } = req.params;
     const anime = await Anime.findOne({ imdbID });
-    if (!anime) return res.status(404).json({ error: 'Аниме не найдено' });
+    if (!anime) return res.status(404).json({ message: 'Аниме не найдено' });
     res.json(anime);
   } catch (error) {
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('Ошибка при получении аниме:', error);
+    res.status(500).json({ message: 'Ошибка сервера', error });
   }
 });
 

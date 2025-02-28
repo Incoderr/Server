@@ -39,7 +39,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   favorites: [{ type: String }], // массив ID избранного
-  avatar: { type: String, default: 'https://i.imgur.com/hepj9ZS.png' }
+  avatar: { type: String, default: './public/default_avatar.jpg' }
 }, { collection: 'users' });
 
 const User = mongoose.model('User', userSchema);

@@ -335,21 +335,40 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
   try {
     const { imdbID } = req.params;
     const updatedData = req.body;
+
+    // Логирование данных запроса для отладки
+    console.log('PUT /api/admin/anime/:imdbID - Received data:', updatedData);
+
     // Проверка обязательных полей
-    if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.Genre || !updatedData.OverviewRu) {
-      return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
+    if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.OverviewRu) {
+      return res.status(400).json({ message: 'Обязательные поля (Title, TitleEng, Poster, Year, Released, OverviewRu) должны быть заполнены' });
     }
+
     // Преобразуем Genre в массив, если строка
     if (typeof updatedData.Genre === 'string') {
       updatedData.Genre = updatedData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
     }
-    // Преобразуем Episodes в число
-    if (updatedData.Episodes) {
-      updatedData.Episodes = parseInt(updatedData.Episodes) || 0;
+    // Проверяем, что Genre не пустой массив
+    if (!updatedData.Genre || updatedData.Genre.length === 0) {
+      return res.status(400).json({ message: 'Жанры (Genre) должны быть указаны' });
     }
-    // Преобразуем Tags в массив
+
+    // Преобразуем Tags в массив, если строка
     if (typeof updatedData.Tags === 'string') {
       updatedData.Tags = updatedData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
+    }
+
+    // Преобразуем Episodes в число, если оно есть
+    if (updatedData.Episodes !== undefined && updatedData.Episodes !== null) {
+      updatedData.Episodes = parseInt(updatedData.Episodes) || 0;
+    }
+
+    // Обрабатываем необязательные поля (Backdrop, imdbRating)
+    if (updatedData.Backdrop === "") {
+      updatedData.Backdrop = undefined; // Устанавливаем undefined для необязательного поля
+    }
+    if (updatedData.imdbRating === "") {
+      updatedData.imdbRating = undefined; // Устанавливаем undefined для необязательного поля
     }
 
     const updatedAnime = await Anime.findOneAndUpdate(
@@ -357,11 +376,15 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
       updatedData,
       { new: true, runValidators: true }
     );
-    if (!updatedAnime) return res.status(404).json({ message: 'Аниме не найдено' });
+
+    if (!updatedAnime) {
+      return res.status(404).json({ message: 'Аниме не найдено' });
+    }
+
     res.json(updatedAnime);
   } catch (error) {
     console.error('Ошибка при редактировании аниме:', error);
-    res.status(400).json({ message: 'Ошибка при редактировании аниме', error });
+    res.status(400).json({ message: 'Ошибка при редактировании аниме', error: error.message });
   }
 });
 

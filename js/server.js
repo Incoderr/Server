@@ -371,9 +371,27 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
       updatedData.imdbRating = undefined; // Устанавливаем undefined для необязательного поля
     }
 
+    // Удаляем поле _id, если оно случайно передано из клиента
+    delete updatedData._id;
+
+    // Ограничиваем обновляемые поля только теми, что определены в схеме
+    const allowedUpdates = {
+      Title: updatedData.Title,
+      TitleEng: updatedData.TitleEng,
+      Poster: updatedData.Poster,
+      Backdrop: updatedData.Backdrop,
+      Year: updatedData.Year,
+      Released: updatedData.Released,
+      imdbRating: updatedData.imdbRating,
+      Episodes: updatedData.Episodes,
+      Genre: updatedData.Genre,
+      Tags: updatedData.Tags,
+      OverviewRu: updatedData.OverviewRu,
+    };
+
     const updatedAnime = await Anime.findOneAndUpdate(
       { imdbID },
-      updatedData,
+      allowedUpdates, // Используем только разрешенные поля
       { new: true, runValidators: true }
     );
 

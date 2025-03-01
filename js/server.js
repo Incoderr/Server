@@ -294,16 +294,46 @@ app.post('/api/anilist', async (req, res) => {
     console.log('📌 Ответ от AniList:', data);
 
     const anilistMedia = data.data?.Page?.media || [];
-    const enhancedMedia = await Promise.all(
-      anilistMedia.map(async (anime) => {
-        const dbAnime = await Anime.findOne({ Title: anime.title.romaji });
-        return {
-          ...anime,
-          imdbID: dbAnime?.imdbID || null, // Используем imdbID вместо TTID
-          backdrop: dbAnime?.Backdrop || null,
-        };
-      })
-    );
+    
+    // Получаем все потенциальные совпадения из MongoDB одним запросом
+    const titlesToSearch = anilistMedia.map(anime => [
+      anime.title.romaji?.toLowerCase(),
+      anime.title.english?.toLowerCase(),
+    ]).flat().filter(Boolean);
+
+    const dbAnimeList = await Anime.find({
+      $or: [
+        { Title: { $in: titlesToSearch.map(t => new RegExp(t, 'i')) } },
+        { TitleEng: { $in: titlesToSearch.map(t => new RegExp(t, 'i')) } },
+      ]
+    }).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
+
+    // Создаём карту для быстрого поиска совпадений
+    const dbAnimeMap = new Map();
+    dbAnimeList.forEach(dbAnime => {
+      if (dbAnime.Title) dbAnimeMap.set(dbAnime.Title.toLowerCase(), dbAnime);
+      if (dbAnime.TitleEng) dbAnimeMap.set(dbAnime.TitleEng.toLowerCase(), dbAnime);
+    });
+
+    // Обогащаем данные из AniList
+    const enhancedMedia = anilistMedia.map(anime => {
+      const dbAnime = dbAnimeMap.get(anime.title.romaji?.toLowerCase()) || 
+                      dbAnimeMap.get(anime.title.english?.toLowerCase());
+
+      return {
+        ...anime,
+        imdbID: dbAnime?.imdbID || null,
+        backdrop: dbAnime?.Backdrop || null,
+        // Добавляем больше полей из MongoDB, если нужно
+        poster: dbAnime?.Poster || anime.coverImage?.large,
+        description: dbAnime?.OverviewRu || anime.description,
+        episodes: dbAnime?.Episodes || anime.episodes,
+        year: dbAnime?.Year || null,
+        rating: dbAnime?.imdbRating || (anime.averageScore / 10),
+        genres: dbAnime?.Genre || [],
+        status: dbAnime?.Status || null,
+      };
+    });
 
     res.json({ ...data, data: { ...data.data, Page: { ...data.data.Page, media: enhancedMedia } } });
   } catch (error) {

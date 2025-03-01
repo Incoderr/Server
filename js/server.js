@@ -10,7 +10,7 @@ const app = express();
 
 app.use(cors({
   origin: ['http://localhost:5173', 'https://animeinc.vercel.app'],
-  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'], 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], 
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
@@ -308,6 +308,10 @@ app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
     if (!animeData.imdbID || !animeData.Title || !animeData.TitleEng || !animeData.Poster || !animeData.Year || !animeData.Released || !animeData.Genre || !animeData.OverviewRu) {
       return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
     }
+    // Преобразуем Genre в массив, если строка (например, "Animation, Comedy, Romance" → ["Animation", "Comedy", "Romance"])
+    if (typeof animeData.Genre === 'string') {
+      animeData.Genre = animeData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
+    }
     // Преобразуем Episodes в число, если оно есть
     if (animeData.Episodes) {
       animeData.Episodes = parseInt(animeData.Episodes) || 0;
@@ -334,6 +338,10 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
     // Проверка обязательных полей
     if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.Genre || !updatedData.OverviewRu) {
       return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
+    }
+    // Преобразуем Genre в массив, если строка
+    if (typeof updatedData.Genre === 'string') {
+      updatedData.Genre = updatedData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
     }
     // Преобразуем Episodes в число
     if (updatedData.Episodes) {

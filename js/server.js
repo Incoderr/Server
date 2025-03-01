@@ -197,12 +197,24 @@ app.get('/api/anime', async (req, res) => {
   try {
     const { genre, search, fields, limit, sort } = req.query;
     let query = {};
-    if (genre) query.Genre = { $regex: new RegExp(genre, 'i') };
+
+    // Обработка жанров
+    if (genre) {
+      // Если genre — строка, разбиваем её по запятым и обрезаем пробелы
+      const genreArray = Array.isArray(genre) 
+        ? genre.map(g => g.trim()) 
+        : genre.toString().split(',').map(g => g.trim()).filter(Boolean);
+      
+      // Ищем аниме, у которых в массиве Genre есть хотя бы один из указанных жанров
+      query.Genre = { $in: genreArray };
+    }
+
+    // Обработка поиска
     if (search) {
       query.$or = [
         { Title: { $regex: new RegExp(search, 'i') } },
         { TitleEng: { $regex: new RegExp(search, 'i') } }
-      ]; // Поиск по русскому и оригинальному названию
+      ];
     }
 
     let dbQuery = Anime.find(query);
@@ -217,7 +229,11 @@ app.get('/api/anime', async (req, res) => {
           .filter(item => item.imdbID) // Фильтруем записи без imdbID
           .map(item => [item.imdbID, item])
       ).values()
-    );
+    ).map(anime => ({
+      ...anime.toObject(),
+      Genre: Array.isArray(anime.Genre) ? anime.Genre : (anime.Genre ? [anime.Genre] : []), // Гарантируем, что Genre — массив
+    }));
+
     if (uniqueAnime.length === 0) return res.status(404).json({ message: 'Аниме не найдено' });
     res.json(uniqueAnime);
   } catch (error) {

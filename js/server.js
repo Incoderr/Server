@@ -294,13 +294,14 @@ app.post('/api/anilist', async (req, res) => {
     console.log('📌 Ответ от AniList:', data);
 
     const anilistMedia = data.data?.Page?.media || [];
-    
-    // Получаем все потенциальные совпадения из MongoDB одним запросом
+
+    // Собираем все возможные названия для поиска
     const titlesToSearch = anilistMedia.map(anime => [
       anime.title.romaji?.toLowerCase(),
       anime.title.english?.toLowerCase(),
     ]).flat().filter(Boolean);
 
+    // Ищем совпадения в MongoDB
     const dbAnimeList = await Anime.find({
       $or: [
         { Title: { $in: titlesToSearch.map(t => new RegExp(t, 'i')) } },
@@ -308,23 +309,28 @@ app.post('/api/anilist', async (req, res) => {
       ]
     }).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
 
-    // Создаём карту для быстрого поиска совпадений
+    // Карта для быстрого поиска совпадений
     const dbAnimeMap = new Map();
     dbAnimeList.forEach(dbAnime => {
-      if (dbAnime.Title) dbAnimeMap.set(dbAnime.Title.toLowerCase(), dbAnime);
       if (dbAnime.TitleEng) dbAnimeMap.set(dbAnime.TitleEng.toLowerCase(), dbAnime);
+      if (dbAnime.Title) dbAnimeMap.set(dbAnime.Title.toLowerCase(), dbAnime); // Приоритет русскому названию
     });
 
-    // Обогащаем данные из AniList
+    // Обогащаем данные AniList
     const enhancedMedia = anilistMedia.map(anime => {
       const dbAnime = dbAnimeMap.get(anime.title.romaji?.toLowerCase()) || 
                       dbAnimeMap.get(anime.title.english?.toLowerCase());
 
       return {
         ...anime,
+        title: {
+          ru: dbAnime?.Title || anime.title.romaji || anime.title.english, // Русское название в приоритете
+          romaji: anime.title.romaji,
+          english: anime.title.english,
+          native: anime.title.native,
+        },
         imdbID: dbAnime?.imdbID || null,
         backdrop: dbAnime?.Backdrop || null,
-        title: dbAnime?.Title || anime.title,
         poster: dbAnime?.Poster || anime.coverImage?.large,
         description: dbAnime?.OverviewRu || anime.description,
         episodes: dbAnime?.Episodes || anime.episodes,

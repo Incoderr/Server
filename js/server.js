@@ -193,6 +193,7 @@ app.delete('/api/favorites', authenticateToken, async (req, res) => {
 });
 
 // Существующие маршруты для аниме
+// Существующие маршруты для аниме
 app.get('/api/anime', async (req, res) => {
   try {
     const { genre, search, fields, limit, sort } = req.query;
@@ -205,8 +206,18 @@ app.get('/api/anime', async (req, res) => {
         ? genre.map(g => g.trim()) 
         : genre.toString().split(',').map(g => g.trim()).filter(Boolean);
       
-      // Ищем аниме, у которых в массиве Genre есть хотя бы один из указанных жанров
-      query.Genre = { $in: genreArray };
+      // Преобразуем русские жанры в английские (если используются русские в запросе)
+      const genreMapping = {
+        "Анимация": "Animation",
+        "Комедия": "Comedy",
+        "Романтика": "Romance",
+        "Драма": "Drama",
+        "Экшен": "Action",
+        // Добавьте другие маппинги по необходимости
+      };
+
+      const englishGenres = genreArray.map(g => genreMapping[g] || g); // Преобразуем в английские, если есть маппинг
+      query.Genre = { $in: englishGenres }; // Ищем аниме, у которых в массиве Genre есть хотя бы один из указанных жанров
     }
 
     // Обработка поиска

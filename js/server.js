@@ -324,7 +324,7 @@ app.post('/api/anilist', async (req, res) => {
         ...anime,
         imdbID: dbAnime?.imdbID || null,
         backdrop: dbAnime?.Backdrop || null,
-        // Добавляем больше полей из MongoDB, если нужно
+        title: dbAnime?.Title || anime.title,
         poster: dbAnime?.Poster || anime.coverImage?.large,
         description: dbAnime?.OverviewRu || anime.description,
         episodes: dbAnime?.Episodes || anime.episodes,

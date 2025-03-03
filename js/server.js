@@ -295,40 +295,73 @@ app.post('/api/anilist', async (req, res) => {
 
     const anilistMedia = data.data?.Page?.media || [];
 
-    // Собираем все возможные названия для поиска
-    const titlesToSearch = anilistMedia.map(anime => [
-      anime.title.romaji?.toLowerCase(),
-      anime.title.english?.toLowerCase(),
-    ]).flat().filter(Boolean);
+    // Функция нормализации названий
+    const normalizeTitle = (title) => {
+      if (!title) return '';
+      return title
+        .toLowerCase()
+        .replace(/season \d+/g, '') // Удаляем "Season X"
+        .replace(/part \d+/g, '')   // Удаляем "Part X"
+        .replace(/\s+/g, ' ')       // Убираем лишние пробелы
+        .replace(/[^\w\s]/g, '')    // Убираем знаки препинания
+        .trim();
+    };
+
+    // Собираем нормализованные названия из AniList
+    const titlesToSearch = anilistMedia.map(anime => ({
+      romaji: normalizeTitle(anime.title.romaji),
+      english: normalizeTitle(anime.title.english),
+    }));
 
     // Ищем совпадения в MongoDB
-    const dbAnimeList = await Anime.find({
-      $or: [
-        { Title: { $in: titlesToSearch.map(t => new RegExp(t, 'i')) } },
-        { TitleEng: { $in: titlesToSearch.map(t => new RegExp(t, 'i')) } },
-      ]
-    }).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
-
+    const dbAnimeList = await Anime.find({}).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
+    
     // Карта для быстрого поиска совпадений
     const dbAnimeMap = new Map();
     dbAnimeList.forEach(dbAnime => {
-      if (dbAnime.TitleEng) dbAnimeMap.set(dbAnime.TitleEng.toLowerCase(), dbAnime);
-      if (dbAnime.Title) dbAnimeMap.set(dbAnime.Title.toLowerCase(), dbAnime); // Приоритет русскому названию
+      if (dbAnime.Title) dbAnimeMap.set(normalizeTitle(dbAnime.Title), dbAnime);
+      if (dbAnime.TitleEng) dbAnimeMap.set(normalizeTitle(dbAnime.TitleEng), dbAnime);
     });
 
     // Обогащаем данные AniList
     const enhancedMedia = anilistMedia.map(anime => {
-      const dbAnime = dbAnimeMap.get(anime.title.romaji?.toLowerCase()) || 
-                      dbAnimeMap.get(anime.title.english?.toLowerCase());
+      const normalizedRomaji = normalizeTitle(anime.title.romaji);
+      const normalizedEnglish = normalizeTitle(anime.title.english);
+
+      // Ищем совпадение по нормализованным названиям
+      const dbAnime = dbAnimeMap.get(normalizedRomaji) || dbAnimeMap.get(normalizedEnglish);
+
+      // Если точного совпадения нет, ищем частичное совпадение
+      if (!dbAnime) {
+        for (const dbAnime of dbAnimeList) {
+          const dbTitleNormalized = normalizeTitle(dbAnime.Title) || '';
+          const dbTitleEngNormalized = normalizeTitle(dbAnime.TitleEng) || '';
+          if (
+            (normalizedRomaji && dbTitleNormalized.includes(normalizedRomaji)) ||
+            (normalizedEnglish && dbTitleEngNormalized.includes(normalizedEnglish)) ||
+            (normalizedRomaji && dbTitleEngNormalized.includes(normalizedRomaji)) ||
+            (normalizedEnglish && dbTitleNormalized.includes(normalizedEnglish))
+          ) {
+            return {
+              ...anime,
+              title: { ru: dbAnime.Title, romaji: anime.title.romaji, english: anime.title.english, native: anime.title.native },
+              imdbID: dbAnime.imdbID || null,
+              backdrop: dbAnime.Backdrop || null,
+              poster: dbAnime.Poster || anime.coverImage?.large,
+              description: dbAnime.OverviewRu || anime.description,
+              episodes: dbAnime.Episodes || anime.episodes,
+              year: dbAnime.Year || null,
+              rating: dbAnime.imdbRating || (anime.averageScore / 10),
+              genres: dbAnime.Genre || [],
+              status: dbAnime.Status || null,
+            };
+          }
+        }
+      }
 
       return {
         ...anime,
-        title: {
-          ru: dbAnime?.Title || anime.title.romaji || anime.title.english, // Русское название в приоритете
-          romaji: anime.title.romaji,
-          english: anime.title.english,
-          native: anime.title.native,
-        },
+        title: { ru: dbAnime?.Title || anime.title.romaji || anime.title.english, romaji: anime.title.romaji, english: anime.title.english, native: anime.title.native },
         imdbID: dbAnime?.imdbID || null,
         backdrop: dbAnime?.Backdrop || null,
         poster: dbAnime?.Poster || anime.coverImage?.large,

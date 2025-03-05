@@ -39,7 +39,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   favorites: [{ type: String }],
-  avatar: { type: String, default: '/default-avatar.png' },
+  avatar: { type: String, default: 'https://ibb.co.com/qMX1hGDz' },
   role: { type: String, default: 'user', enum: ['user', 'admin'] }, // Роль: user или admin
 }, { collection: 'users' });
 
@@ -192,7 +192,7 @@ app.delete('/api/favorites', authenticateToken, async (req, res) => {
   }
 });
 
-// Существующие маршруты для аниме
+
 // Существующие маршруты для аниме
 app.get('/api/anime', async (req, res) => {
   try {

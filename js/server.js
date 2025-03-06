@@ -686,4 +686,20 @@ app.get("/api/friends", authenticateToken, async (req, res) => {
     res.status(500).json({ message: "Ошибка сервера", error: error.message });
   }
 });
+
+app.get("/api/users/search", authenticateToken, async (req, res) => {
+  const { username } = req.query;
+  try {
+    const user = await User.findOne({ username }).select("username avatar _id");
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+    if (user._id.toString() === req.user.id) {
+      return res.status(400).json({ message: "Нельзя добавить себя в друзья" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
 module.exports = app;

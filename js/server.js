@@ -106,9 +106,6 @@ app.post('/api/register', async (req, res) => {
   try {
     const { login: username, email, password, turnstileToken, role = 'user' } = req.body;
 
-    // Логируем полученные данные
-    console.log('Register request body:', { username, email, password, turnstileToken, role });
-
     // Проверка токена Turnstile
     if (!turnstileToken) {
       return res.status(400).json({ message: 'Требуется проверка капчи' });

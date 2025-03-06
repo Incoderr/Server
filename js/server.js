@@ -105,6 +105,9 @@ app.post('/api/register', async (req, res) => {
   try {
     const { login: username, email, password, turnstileToken, role = 'user' } = req.body;
 
+    // Логируем полученные данные
+    console.log('Register request body:', { username, email, password, turnstileToken, role });
+
     // Проверка токена Turnstile
     if (!turnstileToken) {
       return res.status(400).json({ message: 'Требуется проверка капчи' });
@@ -142,6 +145,7 @@ app.post('/api/register', async (req, res) => {
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
       process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1h' }
     );
 
     // Ответ клиенту
@@ -155,7 +159,6 @@ app.post('/api/register', async (req, res) => {
       },
     });
   } catch (error) {
-    // Обработка специфичных ошибок MongoDB (например, дубликат)
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       return res.status(409).json({ message: `Этот ${field} уже зарегистрирован` });

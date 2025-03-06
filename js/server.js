@@ -41,7 +41,9 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   favorites: [{ type: String }],
   avatar: { type: String, default: 'https://i.ibb.co.com/vxgzf5cb/default-avatar.jpg' },
-  role: { type: String, default: 'user', enum: ['user', 'admin'] }, // Роль: user или admin
+  role: { type: String, default: 'user', enum: ['user', 'admin'] },
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Список друзей
+  friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Запросы на дружбу
 }, { collection: 'users' });
 
 const User = mongoose.model('User', userSchema);
@@ -607,5 +609,81 @@ app.put('/api/profile/avatar', authenticateToken, async (req, res) => {
     res.status(500).json({ message: 'Ошибка при обновлении аватара' });
   }
 });
+//Друзья
+// server.js
 
+// Новая схема для дружеских отношений
+const friendshipSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  friendId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+}, { timestamps: true });
+
+const Friendship = mongoose.model("Friendship", friendshipSchema);
+
+// Отправка запроса на дружбу
+app.post("/api/friends/request", authenticateToken, async (req, res) => {
+  const { friendId } = req.body;
+  try {
+    const existingRequest = await Friendship.findOne({
+      userId: req.user.id,
+      friendId,
+    });
+    if (existingRequest) {
+      return res.status(400).json({ message: "Запрос уже отправлен" });
+    }
+
+    const friendship = new Friendship({
+      userId: req.user.id,
+      friendId,
+    });
+    await friendship.save();
+    res.status(201).json({ message: "Запрос на дружбу отправлен" });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Принятие запроса на дружбу
+app.put("/api/friends/accept/:friendshipId", authenticateToken, async (req, res) => {
+  const { friendshipId } = req.params;
+  try {
+    const friendship = await Friendship.findOne({ _id: friendshipId, friendId: req.user.id });
+    if (!friendship) {
+      return res.status(404).json({ message: "Запрос не найден" });
+    }
+    if (friendship.status !== "pending") {
+      return res.status(400).json({ message: "Запрос уже обработан" });
+    }
+
+    friendship.status = "accepted";
+    await friendship.save();
+    res.json({ message: "Друг добавлен" });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Получение списка друзей и запросов
+app.get("/api/friends", authenticateToken, async (req, res) => {
+  try {
+    const friends = await Friendship.find({
+      $or: [{ userId: req.user.id }, { friendId: req.user.id }],
+      status: "accepted",
+    }).populate("userId friendId", "username avatar");
+
+    const friendList = friends.map((f) =>
+      f.userId._id.toString() === req.user.id ? f.friendId : f.userId
+    );
+
+    const pendingRequests = await Friendship.find({
+      friendId: req.user.id,
+      status: "pending",
+    }).populate("userId", "username avatar");
+
+    res.json({ friends: friendList, pendingRequests });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
 module.exports = app;

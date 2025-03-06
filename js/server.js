@@ -40,7 +40,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   favorites: [{ type: String }],
-  avatar: { type: String, default: 'https://ibb.co.com/qMX1hGDz' },
+  avatar: { type: String, default: 'https://i.ibb.co.com/vxgzf5cb/default-avatar.jpg' },
   role: { type: String, default: 'user', enum: ['user', 'admin'] }, // Роль: user или admin
 }, { collection: 'users' });
 
@@ -580,4 +580,32 @@ app.delete('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, r
     res.status(400).json({ message: 'Ошибка при удалении аниме', error });
   }
 });
+
+//Загрузка аватарки
+app.put('/api/profile/avatar', authenticateToken, async (req, res) => {
+  try {
+    const { avatarUrl } = req.body;
+    if (!avatarUrl) {
+      return res.status(400).json({ message: 'URL аватара обязателен' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { avatar: avatarUrl },
+      { new: true }
+    ).select('-password');
+
+    // Обновляем данные пользователя в localStorage
+    localStorage.setItem('user', JSON.stringify({
+      ...JSON.parse(localStorage.getItem('user') || '{}'),
+      avatar: avatarUrl
+    }));
+
+    res.json(user);
+  } catch (error) {
+    console.error('Ошибка при обновлении аватара:', error);
+    res.status(500).json({ message: 'Ошибка при обновлении аватара' });
+  }
+});
+
 module.exports = app;

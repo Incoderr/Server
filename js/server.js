@@ -84,15 +84,50 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+
+// Функция проверки токена Turnstile
+const verifyTurnstileToken = async (token) => {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY || 'YOUR_TURNSTILE_SECRET_KEY'; // Используйте переменную окружения
+  try {
+    const response = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      secret: secretKey,
+      response: token,
+    });
+    return response.data.success; // true, если токен валиден
+  } catch (error) {
+    console.error('Ошибка проверки Turnstile:', error.message);
+    return false;
+  }
+};
+
 // Регистрация
 app.post('/api/register', async (req, res) => {
   try {
-    const { login: username, email, password, role = 'user' } = req.body; // По умолчанию user
-    if (role !== 'user' && role !== 'admin') {
-      return res.status(400).json({ message: 'Недопустимая роль' });
+    const { login: username, email, password, turnstileToken, role = 'user' } = req.body;
+
+    // Проверка токена Turnstile
+    if (!turnstileToken) {
+      return res.status(400).json({ message: 'Требуется проверка капчи' });
     }
+    const isValidCaptcha = await verifyTurnstileToken(turnstileToken);
+    if (!isValidCaptcha) {
+      return res.status(400).json({ message: 'Ошибка проверки капчи' });
+    }
+
+    // Валидация роли
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ message: 'Недопустимая роль. Доступные роли: user, admin' });
+    }
+
+    // Проверка наличия обязательных полей
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: 'Все поля (username, email, password) обязательны' });
+    }
+
+    // Хеширование пароля
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
+    // Создание нового пользователя
     const user = new User({
       username,
       email,
@@ -100,19 +135,32 @@ app.post('/api/register', async (req, res) => {
       role,
     });
 
+    // Сохранение пользователя
     await user.save();
-    
-    const token = jwt.sign({ id: user._id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'your-secret-key');
-    res.status(201).json({ 
-      token, 
-      user: { 
-        id: user._id, 
-        username: user.username, 
-        avatar: user.avatar, 
-        role: user.role 
-      }
+
+    // Генерация JWT токена
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+    );
+
+    // Ответ клиенту
+    res.status(201).json({
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        avatar: user.avatar,
+        role: user.role,
+      },
     });
   } catch (error) {
+    // Обработка специфичных ошибок MongoDB (например, дубликат)
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(409).json({ message: `Этот ${field} уже зарегистрирован` });
+    }
+    console.error('Ошибка регистрации:', error.message);
     res.status(400).json({ message: 'Ошибка регистрации', error: error.message });
   }
 });
@@ -120,26 +168,54 @@ app.post('/api/register', async (req, res) => {
 // Вход
 app.post('/api/login', async (req, res) => {
   try {
-    const { login, password } = req.body;
-    const user = await User.findOne({
-      $or: [{ username: login }, { email: login }]
-    });
+    const { login, password, turnstileToken } = req.body;
 
-    if (!user || !await bcrypt.compare(password, user.password)) {
-      return res.status(401).json({ message: 'Неверные данные' });
+    // Проверка токена Turnstile
+    if (!turnstileToken) {
+      return res.status(400).json({ message: 'Требуется проверка капчи' });
+    }
+    const isValidCaptcha = await verifyTurnstileToken(turnstileToken);
+    if (!isValidCaptcha) {
+      return res.status(400).json({ message: 'Ошибка проверки капчи' });
     }
 
-    const token = jwt.sign({ id: user._id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'your-secret-key');
-    res.json({ 
-      token, 
-      user: { 
-        id: user._id, 
-        username: user.username, 
-        avatar: user.avatar, 
-        role: user.role 
-      }
+    // Проверка наличия обязательных полей
+    if (!login || !password) {
+      return res.status(400).json({ message: 'Логин и пароль обязательны' });
+    }
+
+    // Поиск пользователя
+    const user = await User.findOne({
+      $or: [{ username: login }, { email: login }],
+    });
+
+    // Проверка существования пользователя и пароля
+    if (!user) {
+      return res.status(401).json({ message: 'Пользователь не найден' });
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: 'Неверный пароль' });
+    }
+
+    // Генерация JWT токена
+    const token = jwt.sign(
+      { id: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+    );
+
+    // Ответ клиенту
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        avatar: user.avatar,
+        role: user.role,
+      },
     });
   } catch (error) {
+    console.error('Ошибка входа:', error.message);
     res.status(400).json({ message: 'Ошибка входа', error: error.message });
   }
 });

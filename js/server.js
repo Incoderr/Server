@@ -172,18 +172,8 @@ app.post('/api/register', async (req, res) => {
 // Вход
 app.post('/api/login', async (req, res) => {
   try {
-    const { login, password, turnstileToken } = req.body;
+    const { login, password } = req.body; // Убрали turnstileToken
 
-    // Проверка токена Turnstile
-    if (!turnstileToken) {
-      return res.status(400).json({ message: 'Требуется проверка капчи' });
-    }
-    const isValidCaptcha = await verifyTurnstileToken(turnstileToken);
-    if (!isValidCaptcha) {
-      return res.status(400).json({ message: 'Ошибка проверки капчи' });
-    }
-
-    // Проверка наличия обязательных полей
     if (!login || !password) {
       return res.status(400).json({ message: 'Логин и пароль обязательны' });
     }

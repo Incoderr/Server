@@ -710,7 +710,7 @@ app.get("/api/friends", authenticateToken, async (req, res) => {
   }
 });
 
-app.get("/api/users/search", authenticateToken, async (req, res) => {
+app.get("/api/profile/search", authenticateToken, async (req, res) => {
   const { username } = req.query;
   try {
     const user = await User.findOne({ username }).select("username avatar _id");
@@ -727,7 +727,7 @@ app.get("/api/users/search", authenticateToken, async (req, res) => {
 });
 
 // Получение профиля пользователя по ID
-app.get("/api/users/:userId", authenticateToken, async (req, res) => {
+app.get("/api/profile/:userId", authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
 

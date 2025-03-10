@@ -40,7 +40,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   favorites: [{ type: String }],
-  avatar: { type: String, default: 'https://i.ibb.co.com/vxgzf5cb/default-avatar.jpg' },
+  avatar: { type: String, default: 'https://i.ibb.co.com/Zyn02g6/avatar-default.webp' },
   role: { type: String, default: 'user', enum: ['user', 'admin'] },
   friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Список друзей
   friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Запросы на дружбу

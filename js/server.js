@@ -35,8 +35,6 @@ mongoose
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // Схема пользователя
-// server.js
-
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
@@ -67,23 +65,31 @@ const isAdmin = (req, res, next) => {
   next();
 };
 
-// Схема аниме (оставляем как есть)
+// Схема аниме
 const animeSchema = new mongoose.Schema({
-  Title: { type: String, required: true }, // Русское название
-  TitleEng: { type: String, required: true }, // Оригинальное название
-  Poster: { type: String, required: true }, // URL постера
-  Backdrop: { type: String }, // URL бэкдропа (необязательное поле)
-  Year: { type: String, required: true }, // Год выпуска
-  Released: { type: String, required: true }, // Дата релиза
-  imdbRating: { type: String }, // Рейтинг IMDb
-  imdbID: { type: String, required: true, unique: true }, // Уникальный идентификатор IMDb
-  Episodes: { type: Number }, // Количество серий (числовой тип)
-  Genre: { type: [String], required: true, default: [] }, // Жанры (массив строк)
-  Tags: { type: [String], default: [] }, // Теги (массив строк, по умолчанию пустой)
-  OverviewRu: { type: String, required: true }, // Описание на русском
+  Title: { type: String, required: true },
+  TitleEng: { type: String, required: true },
+  Poster: { type: String, required: true },
+  Backdrop: { type: String },
+  Year: { type: String, required: true },
+  Released: { type: String, required: true },
+  imdbRating: { type: String },
+  imdbID: { type: String, required: true, unique: true },
+  Episodes: { type: Number },
+  Genre: { type: [String], required: true, default: [] },
+  Tags: { type: [String], default: [] },
+  OverviewRu: { type: String, required: true },
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);
+
+const friendshipSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  friendId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+}, { timestamps: true });
+
+const Friendship = mongoose.model("Friendship", friendshipSchema);
 
 const SECRET_KEY = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -99,16 +105,15 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-
 // Функция проверки токена Turnstile
 const verifyTurnstileToken = async (token) => {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY || 'YOUR_TURNSTILE_SECRET_KEY'; // Используйте переменную окружения
+  const secretKey = process.env.TURNSTILE_SECRET_KEY || 'YOUR_TURNSTILE_SECRET_KEY';
   try {
     const response = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       secret: secretKey,
       response: token,
     });
-    return response.data.success; // true, если токен валиден
+    return response.data.success;
   } catch (error) {
     console.error('Ошибка проверки Turnstile:', error.message);
     return false;
@@ -120,7 +125,6 @@ app.post('/api/register', async (req, res) => {
   try {
     const { login: username, email, password, turnstileToken, role = 'user' } = req.body;
 
-    // Проверка токена Turnstile
     if (!turnstileToken) {
       return res.status(400).json({ message: 'Требуется проверка капчи' });
     }
@@ -129,46 +133,26 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ message: 'Ошибка проверки капчи' });
     }
 
-    // Валидация роли
     if (!['user', 'admin'].includes(role)) {
       return res.status(400).json({ message: 'Недопустимая роль. Доступные роли: user, admin' });
     }
 
-    // Проверка наличия обязательных полей
     if (!username || !email || !password) {
       return res.status(400).json({ message: 'Все поля (username, email, password) обязательны' });
     }
 
-    // Хеширование пароля
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Создание нового пользователя
-    const user = new User({
-      username,
-      email,
-      password: hashedPassword,
-      role,
-    });
-
-    // Сохранение пользователя
+    const user = new User({ username, email, password: hashedPassword, role });
     await user.save();
 
-    // Генерация JWT токена
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '1h' }
+      SECRET_KEY,
     );
 
-    // Ответ клиенту
     res.status(201).json({
       token,
-      user: {
-        id: user._id,
-        username: user.username,
-        avatar: user.avatar,
-        role: user.role,
-      },
+      user: { id: user._id, username: user.username, avatar: user.avatar, role: user.role },
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -183,18 +167,16 @@ app.post('/api/register', async (req, res) => {
 // Вход
 app.post('/api/login', async (req, res) => {
   try {
-    const { login, password } = req.body; // Убрали turnstileToken
+    const { login, password } = req.body;
 
     if (!login || !password) {
       return res.status(400).json({ message: 'Логин и пароль обязательны' });
     }
 
-    // Поиск пользователя
     const user = await User.findOne({
       $or: [{ username: login }, { email: login }],
     });
 
-    // Проверка существования пользователя и пароля
     if (!user) {
       return res.status(401).json({ message: 'Пользователь не найден' });
     }
@@ -203,21 +185,14 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'Неверный пароль' });
     }
 
-    // Генерация JWT токена
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
+      SECRET_KEY,
     );
 
-    // Ответ клиенту
     res.json({
       token,
-      user: {
-        id: user._id,
-        username: user.username,
-        avatar: user.avatar,
-        role: user.role,
-      },
+      user: { id: user._id, username: user.username, avatar: user.avatar, role: user.role },
     });
   } catch (error) {
     console.error('Ошибка входа:', error.message);
@@ -225,7 +200,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Профиль
+// Профиль текущего пользователя
 app.get('/api/profile', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -239,6 +214,134 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
   }
 });
 
+// Профиль по username
+app.get("/api/profile/:username", authenticateToken, async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const user = await User.findOne({ username })
+      .select("username avatar role favorites friends")
+      .populate("friends", "username avatar");
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+
+    const friendship = await Friendship.findOne({
+      $or: [
+        { userId: req.user.id, friendId: user._id, status: "accepted" },
+        { userId: user._id, friendId: req.user.id, status: "accepted" },
+      ],
+    });
+
+    if (!friendship && req.user.id !== user._id.toString()) {
+      return res.status(403).json({ message: "Доступ запрещён: пользователь не является вашим другом" });
+    }
+
+    const favoritesData = await Promise.all(
+      user.favorites.map((imdbID) =>
+        Anime.findOne({ imdbID }).catch(() => null)
+      )
+    ).then((results) => results.filter(Boolean));
+
+    res.json({ ...user.toObject(), favoritesData });
+  } catch (error) {
+    console.error("Ошибка при получении профиля:", error);
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Поиск пользователя по username
+app.get("/api/profile/search", authenticateToken, async (req, res) => {
+  const { username } = req.query;
+  try {
+    const user = await User.findOne({ username }).select("username avatar _id");
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+    if (user._id.toString() === req.user.id) {
+      return res.status(400).json({ message: "Нельзя добавить себя в друзья" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Отправка запроса на дружбу
+app.post("/api/friends/request", authenticateToken, async (req, res) => {
+  const { friendUsername } = req.body;
+  try {
+    const friend = await User.findOne({ username: friendUsername });
+    if (!friend) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+    if (friend._id.toString() === req.user.id) {
+      return res.status(400).json({ message: "Нельзя добавить себя в друзья" });
+    }
+
+    const existingRequest = await Friendship.findOne({
+      userId: req.user.id,
+      friendId: friend._id,
+    });
+    if (existingRequest) {
+      return res.status(400).json({ message: "Запрос уже отправлен" });
+    }
+
+    const friendship = new Friendship({
+      userId: req.user.id,
+      friendId: friend._id,
+    });
+    await friendship.save();
+    res.status(201).json({ message: "Запрос на дружбу отправлен" });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Принятие запроса на дружбу
+app.put("/api/friends/accept/:friendshipId", authenticateToken, async (req, res) => {
+  const { friendshipId } = req.params;
+  try {
+    const friendship = await Friendship.findOne({ _id: friendshipId, friendId: req.user.id });
+    if (!friendship) {
+      return res.status(404).json({ message: "Запрос не найден" });
+    }
+    if (friendship.status !== "pending") {
+      return res.status(400).json({ message: "Запрос уже обработан" });
+    }
+
+    friendship.status = "accepted";
+    await friendship.save();
+    res.json({ message: "Друг добавлен" });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Получение списка друзей и запросов
+app.get("/api/friends", authenticateToken, async (req, res) => {
+  try {
+    const friends = await Friendship.find({
+      $or: [{ userId: req.user.id }, { friendId: req.user.id }],
+      status: "accepted",
+    }).populate("userId friendId", "username avatar");
+
+    const friendList = friends.map((f) =>
+      f.userId._id.toString() === req.user.id ? f.friendId : f.userId
+    );
+
+    const pendingRequests = await Friendship.find({
+      friendId: req.user.id,
+      status: "pending",
+    }).populate("userId", "username avatar");
+
+    res.json({ friends: friendList, pendingRequests });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Остальные маршруты остаются без изменений (добавление в избранное, аниме и т.д.)
 // Добавление в избранное
 app.post('/api/favorites', authenticateToken, async (req, res) => {
   try {
@@ -250,7 +353,7 @@ app.post('/api/favorites', authenticateToken, async (req, res) => {
       await user.save();
     }
     
-    res.json({ success: true, favorites: user.favorites }); // Минимальный ответ
+    res.json({ success: true, favorites: user.favorites });
   } catch (error) {
     res.status(400).json({ success: false, message: 'Ошибка при добавлении в избранное', error: error.message });
   }
@@ -267,27 +370,51 @@ app.delete('/api/favorites', authenticateToken, async (req, res) => {
       await user.save();
     }
     
-    res.json({ success: true, favorites: user.favorites }); // Минимальный ответ
+    res.json({ success: true, favorites: user.favorites });
   } catch (error) {
     res.status(400).json({ success: false, message: 'Ошибка при удалении из избранного', error: error.message });
   }
 });
 
+// Обновление состояния просмотра
+app.put("/api/watch-status", authenticateToken, async (req, res) => {
+  try {
+    const { imdbID, status } = req.body;
+    if (!imdbID || !status) {
+      return res.status(400).json({ message: "imdbID и status обязательны" });
+    }
 
-// Существующие маршруты для аниме
+    const validStatuses = ["plan_to_watch", "watching", "completed", "dropped"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: "Недопустимый статус" });
+    }
+
+    const user = await User.findById(req.user.id);
+    const existingStatus = user.watchStatus.find((ws) => ws.imdbID === imdbID);
+
+    if (existingStatus) {
+      existingStatus.status = status;
+    } else {
+      user.watchStatus.push({ imdbID, status });
+    }
+
+    await user.save();
+    res.json({ success: true, watchStatus: user.watchStatus });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Аниме маршруты (без изменений)
 app.get('/api/anime', async (req, res) => {
   try {
     const { genre, search, fields, limit, sort } = req.query;
     let query = {};
 
-    // Обработка жанров
     if (genre) {
-      // Если genre — строка, разбиваем её по запятым и обрезаем пробелы
       const genreArray = Array.isArray(genre) 
         ? genre.map(g => g.trim()) 
         : genre.toString().split(',').map(g => g.trim()).filter(Boolean);
-      
-      // Преобразуем русские жанры в английские (если используются русские в запросе)
       const genreMapping = {
         "Экшен": "Action",
         "Приключения": "Adventure",
@@ -307,12 +434,10 @@ app.get('/api/anime', async (req, res) => {
         "Сверхъестественное": "Supernatural",
         "Триллер": "Thriller",
       };
-
-      const englishGenres = genreArray.map(g => genreMapping[g] || g); // Преобразуем в английские, если есть маппинг
-      query.Genre = { $in: englishGenres }; // Ищем аниме, у которых в массиве Genre есть хотя бы один из указанных жанров
+      const englishGenres = genreArray.map(g => genreMapping[g] || g);
+      query.Genre = { $in: englishGenres };
     }
 
-    // Обработка поиска
     if (search) {
       query.$or = [
         { Title: { $regex: new RegExp(search, 'i') } },
@@ -322,19 +447,19 @@ app.get('/api/anime', async (req, res) => {
 
     let dbQuery = Anime.find(query);
     if (fields) dbQuery = dbQuery.select(fields.split(',').join(' '));
-    if (limit) dbQuery = dbQuery.limit(parseInt(limit) || 10); // По умолчанию лимит 10
+    if (limit) dbQuery = dbQuery.limit(parseInt(limit) || 10);
     if (sort) dbQuery = dbQuery.sort(sort);
 
     const animeList = await dbQuery;
     const uniqueAnime = Array.from(
       new Map(
         animeList
-          .filter(item => item.imdbID) // Фильтруем записи без imdbID
+          .filter(item => item.imdbID)
           .map(item => [item.imdbID, item])
       ).values()
     ).map(anime => ({
       ...anime.toObject(),
-      Genre: Array.isArray(anime.Genre) ? anime.Genre : (anime.Genre ? [anime.Genre] : []), // Гарантируем, что Genre — массив
+      Genre: Array.isArray(anime.Genre) ? anime.Genre : (anime.Genre ? [anime.Genre] : []),
     }));
 
     if (uniqueAnime.length === 0) return res.status(404).json({ message: 'Аниме не найдено' });
@@ -357,7 +482,7 @@ app.get('/api/anime/:imdbID', async (req, res) => {
   }
 });
 
-// Прокси для AniList API
+// Прокси для AniList API и admin маршруты остаются без изменений
 app.post('/api/anilist', async (req, res) => {
   try {
     const { query, variables } = req.body;
@@ -386,44 +511,36 @@ app.post('/api/anilist', async (req, res) => {
     console.log('📌 Ответ от AniList:', data);
 
     const anilistMedia = data.data?.Page?.media || [];
-
-    // Функция нормализации названий
     const normalizeTitle = (title) => {
       if (!title) return '';
       return title
         .toLowerCase()
-        .replace(/season \d+/g, '') // Удаляем "Season X"
-        .replace(/part \d+/g, '')   // Удаляем "Part X"
-        .replace(/\s+/g, ' ')       // Убираем лишние пробелы
-        .replace(/[^\w\s]/g, '')    // Убираем знаки препинания
+        .replace(/season \d+/g, '')
+        .replace(/part \d+/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/[^\w\s]/g, '')
         .trim();
     };
 
-    // Собираем нормализованные названия из AniList
     const titlesToSearch = anilistMedia.map(anime => ({
       romaji: normalizeTitle(anime.title.romaji),
       english: normalizeTitle(anime.title.english),
     }));
 
-    // Ищем совпадения в MongoDB
     const dbAnimeList = await Anime.find({}).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
     
-    // Карта для быстрого поиска совпадений
     const dbAnimeMap = new Map();
     dbAnimeList.forEach(dbAnime => {
       if (dbAnime.Title) dbAnimeMap.set(normalizeTitle(dbAnime.Title), dbAnime);
       if (dbAnime.TitleEng) dbAnimeMap.set(normalizeTitle(dbAnime.TitleEng), dbAnime);
     });
 
-    // Обогащаем данные AniList
     const enhancedMedia = anilistMedia.map(anime => {
       const normalizedRomaji = normalizeTitle(anime.title.romaji);
       const normalizedEnglish = normalizeTitle(anime.title.english);
 
-      // Ищем совпадение по нормализованным названиям
       const dbAnime = dbAnimeMap.get(normalizedRomaji) || dbAnimeMap.get(normalizedEnglish);
 
-      // Если точного совпадения нет, ищем частичное совпадение
       if (!dbAnime) {
         for (const dbAnime of dbAnimeList) {
           const dbTitleNormalized = normalizeTitle(dbAnime.Title) || '';
@@ -476,8 +593,7 @@ app.post('/api/anilist', async (req, res) => {
     }
   }
 });
-// admin
-// Получение всех аниме
+
 app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   console.log('Admin request for anime list by user:', req.user);
   try {
@@ -489,22 +605,18 @@ app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-// Добавление нового аниме
 app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   try {
     const animeData = req.body;
     if (!animeData.imdbID || !animeData.Title || !animeData.TitleEng || !animeData.Poster || !animeData.Year || !animeData.Released || !animeData.Genre || !animeData.OverviewRu) {
       return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
     }
-    // Преобразуем Genre в массив, если строка (например, "Animation, Comedy, Romance" → ["Animation", "Comedy", "Romance"])
     if (typeof animeData.Genre === 'string') {
       animeData.Genre = animeData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
     }
-    // Преобразуем Episodes в число, если оно есть
     if (animeData.Episodes) {
       animeData.Episodes = parseInt(animeData.Episodes) || 0;
     }
-    // Преобразуем Tags в массив, если строка
     if (typeof animeData.Tags === 'string') {
       animeData.Tags = animeData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
     }
@@ -518,51 +630,41 @@ app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   }
 });
 
-// Редактирование аниме
 app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { imdbID } = req.params;
     const updatedData = req.body;
 
-    // Логирование данных запроса для отладки
     console.log('PUT /api/admin/anime/:imdbID - Received data:', updatedData);
 
-    // Проверка обязательных полей
     if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.OverviewRu) {
       return res.status(400).json({ message: 'Обязательные поля (Title, TitleEng, Poster, Year, Released, OverviewRu) должны быть заполнены' });
     }
 
-    // Преобразуем Genre в массив, если строка
     if (typeof updatedData.Genre === 'string') {
       updatedData.Genre = updatedData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
     }
-    // Проверяем, что Genre не пустой массив
     if (!updatedData.Genre || updatedData.Genre.length === 0) {
       return res.status(400).json({ message: 'Жанры (Genre) должны быть указаны' });
     }
 
-    // Преобразуем Tags в массив, если строка
     if (typeof updatedData.Tags === 'string') {
       updatedData.Tags = updatedData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
     }
 
-    // Преобразуем Episodes в число, если оно есть
     if (updatedData.Episodes !== undefined && updatedData.Episodes !== null) {
       updatedData.Episodes = parseInt(updatedData.Episodes) || 0;
     }
 
-    // Обрабатываем необязательные поля (Backdrop, imdbRating)
     if (updatedData.Backdrop === "") {
-      updatedData.Backdrop = undefined; // Устанавливаем undefined для необязательного поля
+      updatedData.Backdrop = undefined;
     }
     if (updatedData.imdbRating === "") {
-      updatedData.imdbRating = undefined; // Устанавливаем undefined для необязательного поля
+      updatedData.imdbRating = undefined;
     }
 
-    // Удаляем поле _id, если оно случайно передано из клиента
     delete updatedData._id;
 
-    // Ограничиваем обновляемые поля только теми, что определены в схеме
     const allowedUpdates = {
       Title: updatedData.Title,
       TitleEng: updatedData.TitleEng,
@@ -579,7 +681,7 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
 
     const updatedAnime = await Anime.findOneAndUpdate(
       { imdbID },
-      allowedUpdates, // Используем только разрешенные поля
+      allowedUpdates,
       { new: true, runValidators: true }
     );
 
@@ -594,7 +696,6 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
   }
 });
 
-// Удаление аниме
 app.delete('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { imdbID } = req.params;
@@ -606,7 +707,7 @@ app.delete('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, r
   }
 });
 
-//Загрузка аватарки
+// Загрузка аватарки
 app.put('/api/profile/avatar', authenticateToken, async (req, res) => {
   try {
     const { avatarUrl } = req.body;
@@ -620,175 +721,11 @@ app.put('/api/profile/avatar', authenticateToken, async (req, res) => {
       { new: true }
     ).select('-password');
 
-    // Обновляем данные пользователя в localStorage
-    localStorage.setItem('user', JSON.stringify({
-      ...JSON.parse(localStorage.getItem('user') || '{}'),
-      avatar: avatarUrl
-    }));
-
     res.json(user);
   } catch (error) {
     console.error('Ошибка при обновлении аватара:', error);
     res.status(500).json({ message: 'Ошибка при обновлении аватара' });
   }
 });
-//Друзья
-// server.js
 
-// Новая схема для дружеских отношений
-const friendshipSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  friendId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
-}, { timestamps: true });
-
-const Friendship = mongoose.model("Friendship", friendshipSchema);
-
-// Отправка запроса на дружбу
-app.post("/api/friends/request", authenticateToken, async (req, res) => {
-  const { friendId } = req.body;
-  try {
-    const existingRequest = await Friendship.findOne({
-      userId: req.user.id,
-      friendId,
-    });
-    if (existingRequest) {
-      return res.status(400).json({ message: "Запрос уже отправлен" });
-    }
-
-    const friendship = new Friendship({
-      userId: req.user.id,
-      friendId,
-    });
-    await friendship.save();
-    res.status(201).json({ message: "Запрос на дружбу отправлен" });
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
-
-// Принятие запроса на дружбу
-app.put("/api/friends/accept/:friendshipId", authenticateToken, async (req, res) => {
-  const { friendshipId } = req.params;
-  try {
-    const friendship = await Friendship.findOne({ _id: friendshipId, friendId: req.user.id });
-    if (!friendship) {
-      return res.status(404).json({ message: "Запрос не найден" });
-    }
-    if (friendship.status !== "pending") {
-      return res.status(400).json({ message: "Запрос уже обработан" });
-    }
-
-    friendship.status = "accepted";
-    await friendship.save();
-    res.json({ message: "Друг добавлен" });
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
-
-// Получение списка друзей и запросов
-app.get("/api/friends", authenticateToken, async (req, res) => {
-  try {
-    const friends = await Friendship.find({
-      $or: [{ userId: req.user.id }, { friendId: req.user.id }],
-      status: "accepted",
-    }).populate("userId friendId", "username avatar");
-
-    const friendList = friends.map((f) =>
-      f.userId._id.toString() === req.user.id ? f.friendId : f.userId
-    );
-
-    const pendingRequests = await Friendship.find({
-      friendId: req.user.id,
-      status: "pending",
-    }).populate("userId", "username avatar");
-
-    res.json({ friends: friendList, pendingRequests });
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
-
-app.get("/api/profile/search", authenticateToken, async (req, res) => {
-  const { username } = req.query;
-  try {
-    const user = await User.findOne({ username }).select("username avatar _id");
-    if (!user) {
-      return res.status(404).json({ message: "Пользователь не найден" });
-    }
-    if (user._id.toString() === req.user.id) {
-      return res.status(400).json({ message: "Нельзя добавить себя в друзья" });
-    }
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
-
-// Получение профиля пользователя по ID
-app.get("/api/profile/:userId", authenticateToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    // Проверяем, является ли запрашиваемый пользователь другом
-    const friendship = await Friendship.findOne({
-      $or: [
-        { userId: req.user.id, friendId: userId, status: "accepted" },
-        { userId: userId, friendId: req.user.id, status: "accepted" },
-      ],
-    });
-
-    if (!friendship && req.user.id !== userId) {
-      return res.status(403).json({ message: "Доступ запрещён: пользователь не является вашим другом" });
-    }
-
-    const user = await User.findById(userId)
-      .select("username avatar role favorites friends")
-      .populate("friends", "username avatar");
-    if (!user) {
-      return res.status(404).json({ message: "Пользователь не найден" });
-    }
-
-    const favoritesData = await Promise.all(
-      user.favorites.map((imdbID) =>
-        Anime.findOne({ imdbID }).catch(() => null)
-      )
-    ).then((results) => results.filter(Boolean));
-
-    res.json({ ...user.toObject(), favoritesData });
-  } catch (error) {
-    console.error("Ошибка при получении профиля:", error);
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
-
-// Обновление состояния просмотра
-app.put("/api/watch-status", authenticateToken, async (req, res) => {
-  try {
-    const { imdbID, status } = req.body;
-    if (!imdbID || !status) {
-      return res.status(400).json({ message: "imdbID и status обязательны" });
-    }
-
-    const validStatuses = ["plan_to_watch", "watching", "completed", "dropped"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: "Недопустимый статус" });
-    }
-
-    const user = await User.findById(req.user.id);
-    const existingStatus = user.watchStatus.find((ws) => ws.imdbID === imdbID);
-
-    if (existingStatus) {
-      existingStatus.status = status;
-    } else {
-      user.watchStatus.push({ imdbID, status });
-    }
-
-    await user.save();
-    res.json({ success: true, watchStatus: user.watchStatus });
-  } catch (error) {
-    res.status(500).json({ message: "Ошибка сервера", error: error.message });
-  }
-});
 module.exports = app;

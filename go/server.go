@@ -339,6 +339,10 @@ func addFavoriteHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Ошибка при добавлении в избранное"})
 		return
 	}
+	if result.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"message": "Пользователь не найден"})
+		return
+	}
 
 	var updatedUser User
 	coll.FindOne(context.Background(), bson.M{"_id": userID}).Decode(&updatedUser)

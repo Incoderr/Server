@@ -220,12 +220,14 @@ app.get("/api/profile/:username", authenticateToken, async (req, res) => {
     const { username } = req.params;
 
     const user = await User.findOne({ username })
-      .select("username avatar role favorites friends")
+      .select("username avatar role favorites friends watchStatus")
       .populate("friends", "username avatar");
     if (!user) {
       return res.status(404).json({ message: "Пользователь не найден" });
     }
 
+    // Проверяем, является ли запрашиваемый пользователь текущим пользователем или его другом
+    const isCurrentUser = req.user.username === username;
     const friendship = await Friendship.findOne({
       $or: [
         { userId: req.user.id, friendId: user._id, status: "accepted" },
@@ -233,7 +235,7 @@ app.get("/api/profile/:username", authenticateToken, async (req, res) => {
       ],
     });
 
-    if (!friendship && req.user.id !== user._id.toString()) {
+    if (!isCurrentUser && !friendship) {
       return res.status(403).json({ message: "Доступ запрещён: пользователь не является вашим другом" });
     }
 
@@ -377,6 +379,7 @@ app.delete('/api/favorites', authenticateToken, async (req, res) => {
 });
 
 // Обновление состояния просмотра
+// Обновление состояния просмотра
 app.put("/api/watch-status", authenticateToken, async (req, res) => {
   try {
     const { imdbID, status } = req.body;
@@ -400,6 +403,27 @@ app.put("/api/watch-status", authenticateToken, async (req, res) => {
 
     await user.save();
     res.json({ success: true, watchStatus: user.watchStatus });
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Новый маршрут для статистики
+app.get("/api/watch-status/stats", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const stats = {
+      plan_to_watch: 0,
+      watching: 0,
+      completed: 0,
+      dropped: 0,
+    };
+
+    user.watchStatus.forEach((ws) => {
+      stats[ws.status]++;
+    });
+
+    res.json(stats);
   } catch (error) {
     res.status(500).json({ message: "Ошибка сервера", error: error.message });
   }

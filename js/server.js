@@ -35,16 +35,28 @@ mongoose
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // Схема пользователя
+// server.js
+
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   favorites: [{ type: String }],
-  avatar: { type: String, default: 'https://i.ibb.co.com/Zyn02g6/avatar-default.webp' },
-  role: { type: String, default: 'user', enum: ['user', 'admin'] },
-  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Список друзей
-  friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Запросы на дружбу
-}, { collection: 'users' });
+  avatar: { type: String, default: "https://i.ibb.co.com/Zyn02g6/avatar-default.webp" },
+  role: { type: String, default: "user", enum: ["user", "admin"] },
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  watchStatus: [
+    {
+      imdbID: { type: String, required: true },
+      status: {
+        type: String,
+        enum: ["plan_to_watch", "watching", "completed", "dropped"],
+        default: "plan_to_watch",
+      },
+    },
+  ],
+}, { collection: "users" });
 
 const User = mongoose.model('User', userSchema);
 
@@ -277,12 +289,23 @@ app.get('/api/anime', async (req, res) => {
       
       // Преобразуем русские жанры в английские (если используются русские в запросе)
       const genreMapping = {
-        "Анимация": "Animation",
-        "Комедия": "Comedy",
-        "Романтика": "Romance",
-        "Драма": "Drama",
         "Экшен": "Action",
-        // Добавьте другие маппинги по необходимости
+        "Приключения": "Adventure",
+        "Комедия": "Comedy",
+        "Драма": "Drama",
+        "Этти": "Ecchi",
+        "Фэнтези": "Fantasy",
+        "Хоррор": "Horror",
+        "Меха": "Mecha",
+        "Музыка": "Music",
+        "Детектив": "Mystery",
+        "Психологическое": "Psychological",
+        "Романтика": "Romance",
+        "Научная_фантастика": "Sci-Fi",
+        "Повседневность": "Slice of Life",
+        "Спорт": "Sports",
+        "Сверхъестественное": "Supernatural",
+        "Триллер": "Thriller",
       };
 
       const englishGenres = genreArray.map(g => genreMapping[g] || g); // Преобразуем в английские, если есть маппинг
@@ -698,6 +721,72 @@ app.get("/api/users/search", authenticateToken, async (req, res) => {
       return res.status(400).json({ message: "Нельзя добавить себя в друзья" });
     }
     res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Получение профиля пользователя по ID
+app.get("/api/users/:userId", authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Проверяем, является ли запрашиваемый пользователь другом
+    const friendship = await Friendship.findOne({
+      $or: [
+        { userId: req.user.id, friendId: userId, status: "accepted" },
+        { userId: userId, friendId: req.user.id, status: "accepted" },
+      ],
+    });
+
+    if (!friendship && req.user.id !== userId) {
+      return res.status(403).json({ message: "Доступ запрещён: пользователь не является вашим другом" });
+    }
+
+    const user = await User.findById(userId)
+      .select("username avatar role favorites friends")
+      .populate("friends", "username avatar");
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+
+    const favoritesData = await Promise.all(
+      user.favorites.map((imdbID) =>
+        Anime.findOne({ imdbID }).catch(() => null)
+      )
+    ).then((results) => results.filter(Boolean));
+
+    res.json({ ...user.toObject(), favoritesData });
+  } catch (error) {
+    console.error("Ошибка при получении профиля:", error);
+    res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
+
+// Обновление состояния просмотра
+app.put("/api/watch-status", authenticateToken, async (req, res) => {
+  try {
+    const { imdbID, status } = req.body;
+    if (!imdbID || !status) {
+      return res.status(400).json({ message: "imdbID и status обязательны" });
+    }
+
+    const validStatuses = ["plan_to_watch", "watching", "completed", "dropped"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: "Недопустимый статус" });
+    }
+
+    const user = await User.findById(req.user.id);
+    const existingStatus = user.watchStatus.find((ws) => ws.imdbID === imdbID);
+
+    if (existingStatus) {
+      existingStatus.status = status;
+    } else {
+      user.watchStatus.push({ imdbID, status });
+    }
+
+    await user.save();
+    res.json({ success: true, watchStatus: user.watchStatus });
   } catch (error) {
     res.status(500).json({ message: "Ошибка сервера", error: error.message });
   }

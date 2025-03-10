@@ -9,7 +9,7 @@
     "routes": [
       {
         "src": "/(.*)",
-        "dest": "/go/server.go"
+        "dest": "go/server.go"
       }
     ]
   }

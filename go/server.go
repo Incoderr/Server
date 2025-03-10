@@ -71,9 +71,11 @@ var (
 	client    *mongo.Client
 	secretKey = os.Getenv("JWT_SECRET")
 	mongoURI  = os.Getenv("MONGO_URI")
+	router    *gin.Engine
 )
 
-func main() {
+// Инициализация (выполняется один раз при загрузке)
+func init() {
 	// Загрузка .env
 	err := godotenv.Load()
 	if err != nil {
@@ -86,7 +88,6 @@ func main() {
 	if err != nil {
 		log.Fatal("❌ MongoDB connection error:", err)
 	}
-	defer client.Disconnect(context.Background())
 
 	err = client.Ping(context.Background(), nil)
 	if err != nil {
@@ -94,49 +95,47 @@ func main() {
 	}
 	fmt.Println("✅ Connected to MongoDB")
 
-	// Инициализация роутера
-	r := gin.Default()
+	// Инициализация Gin
+	router = gin.Default()
 
 	// Настройка CORS
-	r.Use(cors.New(cors.Config{
+	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173", "https://animeinc.vercel.app"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
 
-	// Роуты
-	r.POST("/api/register", registerHandler)
-	r.POST("/api/login", loginHandler)
-	r.GET("/api/profile", authenticateToken, profileHandler)
-	r.POST("/api/favorites", authenticateToken, addFavoriteHandler)
-	r.DELETE("/api/favorites", authenticateToken, removeFavoriteHandler)
-	r.GET("/api/anime", getAnimeHandler)
-	r.GET("/api/anime/:imdbID", getAnimeByIDHandler)
-	r.POST("/api/anilist", anilistProxyHandler)
+	// Регистрация маршрутов
+	router.POST("/api/register", registerHandler)
+	router.POST("/api/login", loginHandler)
+	router.GET("/api/profile", authenticateToken, profileHandler)
+	router.POST("/api/favorites", authenticateToken, addFavoriteHandler)
+	router.DELETE("/api/favorites", authenticateToken, removeFavoriteHandler)
+	router.GET("/api/anime", getAnimeHandler)
+	router.GET("/api/anime/:imdbID", getAnimeByIDHandler)
+	router.POST("/api/anilist", anilistProxyHandler)
 
 	// Admin роуты
-	admin := r.Group("/api/admin").Use(authenticateToken, isAdmin)
+	admin := router.Group("/api/admin").Use(authenticateToken, isAdmin)
 	{
 		admin.GET("/anime", getAllAnimeHandler)
 		admin.POST("/anime", addAnimeHandler)
 		admin.PUT("/anime/:imdbID", updateAnimeHandler)
-		admin.DELETE("/api/anime/:imdbID", deleteAnimeHandler)
+		admin.DELETE("/anime/:imdbID", deleteAnimeHandler)
 	}
 
 	// Friends роуты
-	r.POST("/api/friends/request", authenticateToken, friendRequestHandler)
-	r.PUT("/api/friends/accept/:friendshipId", authenticateToken, acceptFriendRequestHandler)
-	r.GET("/api/friends", authenticateToken, getFriendsHandler)
-	r.GET("/api/users/search", authenticateToken, searchUsersHandler)
-	r.PUT("/api/profile/avatar", authenticateToken, updateAvatarHandler)
+	router.POST("/api/friends/request", authenticateToken, friendRequestHandler)
+	router.PUT("/api/friends/accept/:friendshipId", authenticateToken, acceptFriendRequestHandler)
+	router.GET("/api/friends", authenticateToken, getFriendsHandler)
+	router.GET("/api/users/search", authenticateToken, searchUsersHandler)
+	router.PUT("/api/profile/avatar", authenticateToken, updateAvatarHandler)
+}
 
-	// Запуск сервера
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
-	}
-	r.Run(":" + port)
+// Экспортируемая функция для Vercel
+func Handler(w http.ResponseWriter, r *http.Request) {
+	router.ServeHTTP(w, r)
 }
 
 // Middleware
@@ -217,11 +216,11 @@ func registerHandler(c *gin.Context) {
 		Email:     input.Email,
 		Password:  string(hashedPassword),
 		Role:      role,
-		Avatar:    "https://i.ibb.co.com/Zyn02g6/avatar-default.webp",
+		Avatar:    "https://i.ibb.co.com/vxgzf5cb/default-avatar.jpg",
 		Favorites: []string{},
 	}
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	result, err := coll.InsertOne(context.Background(), user)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -257,7 +256,7 @@ func loginHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	var user User
 	err := coll.FindOne(context.Background(), bson.M{
 		"$or": []bson.M{
@@ -292,7 +291,7 @@ func profileHandler(c *gin.Context) {
 	userClaims := c.MustGet("user").(*Claims)
 	userID, _ := primitive.ObjectIDFromHex(userClaims.ID)
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	var user User
 	err := coll.FindOne(context.Background(), bson.M{"_id": userID}).Decode(&user)
 	if err != nil {
@@ -300,7 +299,7 @@ func profileHandler(c *gin.Context) {
 		return
 	}
 
-	favColl := client.Database("anime_db").Collection("anime_list")
+	favColl := client.Database("my_anime_app").Collection("anime_list")
 	var favoritesData []Anime
 	for _, imdbID := range user.Favorites {
 		var anime Anime
@@ -333,7 +332,7 @@ func addFavoriteHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	update := bson.M{"$addToSet": bson.M{"favorites": input.ImdbID}}
 	result, err := coll.UpdateOne(context.Background(), bson.M{"_id": userID}, update)
 	if err != nil {
@@ -358,7 +357,7 @@ func removeFavoriteHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	update := bson.M{"$pull": bson.M{"favorites": input.ImdbID}}
 	_, err := coll.UpdateOne(context.Background(), bson.M{"_id": userID}, update)
 	if err != nil {
@@ -398,7 +397,7 @@ func getAnimeHandler(c *gin.Context) {
 		}
 	}
 
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	cursor, err := coll.Find(context.Background(), filter, opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Ошибка при получении аниме"})
@@ -422,7 +421,7 @@ func getAnimeHandler(c *gin.Context) {
 
 func getAnimeByIDHandler(c *gin.Context) {
 	imdbID := c.Param("imdbID")
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	var anime Anime
 	err := coll.FindOne(context.Background(), bson.M{"imdbID": imdbID}).Decode(&anime)
 	if err != nil {
@@ -442,7 +441,6 @@ func anilistProxyHandler(c *gin.Context) {
 		return
 	}
 
-	// Простая реализация прокси (без полной обработки как в JS)
 	resp, err := http.Post("https://graphql.anilist.co", "application/json", strings.NewReader(fmt.Sprintf(`{"query": %q, "variables": %v}`, input.Query, input.Variables)))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при запросе к AniList"})
@@ -456,7 +454,7 @@ func anilistProxyHandler(c *gin.Context) {
 }
 
 func getAllAnimeHandler(c *gin.Context) {
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	cursor, err := coll.Find(context.Background(), bson.M{})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "Ошибка при получении списка аниме"})
@@ -479,7 +477,7 @@ func addAnimeHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	result, err := coll.InsertOne(context.Background(), anime)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Ошибка при добавлении аниме"})
@@ -498,7 +496,7 @@ func updateAnimeHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	update := bson.M{"$set": anime}
 	result, err := coll.UpdateOne(context.Background(), bson.M{"imdbID": imdbID}, update)
 	if err != nil || result.MatchedCount == 0 {
@@ -511,7 +509,7 @@ func updateAnimeHandler(c *gin.Context) {
 
 func deleteAnimeHandler(c *gin.Context) {
 	imdbID := c.Param("imdbID")
-	coll := client.Database("anime_db").Collection("anime_list")
+	coll := client.Database("my_anime_app").Collection("anime_list")
 	result, err := coll.DeleteOne(context.Background(), bson.M{"imdbID": imdbID})
 	if err != nil || result.DeletedCount == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"message": "Аниме не найдено"})
@@ -533,7 +531,7 @@ func friendRequestHandler(c *gin.Context) {
 	}
 
 	friendID, _ := primitive.ObjectIDFromHex(input.FriendID)
-	coll := client.Database("anime_db").Collection("friendships")
+	coll := client.Database("my_anime_app").Collection("friendships")
 	friendship := Friendship{
 		UserID:    userID,
 		FriendID:  friendID,
@@ -554,7 +552,7 @@ func acceptFriendRequestHandler(c *gin.Context) {
 	userID, _ := primitive.ObjectIDFromHex(userClaims.ID)
 	friendshipID, _ := primitive.ObjectIDFromHex(c.Param("friendshipId"))
 
-	coll := client.Database("anime_db").Collection("friendships")
+	coll := client.Database("my_anime_app").Collection("friendships")
 	update := bson.M{"$set": bson.M{"status": "accepted"}}
 	result, err := coll.UpdateOne(context.Background(), bson.M{"_id": friendshipID, "friendId": userID}, update)
 	if err != nil || result.MatchedCount == 0 {
@@ -568,7 +566,7 @@ func getFriendsHandler(c *gin.Context) {
 	userClaims := c.MustGet("user").(*Claims)
 	userID, _ := primitive.ObjectIDFromHex(userClaims.ID)
 
-	coll := client.Database("anime_db").Collection("friendships")
+	coll := client.Database("my_anime_app").Collection("friendships")
 	cursor, err := coll.Find(context.Background(), bson.M{
 		"$or": []bson.M{
 			{"userId": userID},
@@ -593,7 +591,7 @@ func getFriendsHandler(c *gin.Context) {
 			friendID = f.UserID
 		}
 		var friend User
-		client.Database("anime_db").Collection("users").FindOne(context.Background(), bson.M{"_id": friendID}).Decode(&friend)
+		client.Database("my_anime_app").Collection("users").FindOne(context.Background(), bson.M{"_id": friendID}).Decode(&friend)
 		friends = append(friends, friend)
 	}
 
@@ -609,7 +607,7 @@ func getFriendsHandler(c *gin.Context) {
 		var f Friendship
 		pendingCursor.Decode(&f)
 		var requester User
-		client.Database("anime_db").Collection("users").FindOne(context.Background(), bson.M{"_id": f.UserID}).Decode(&requester)
+		client.Database("my_anime_app").Collection("users").FindOne(context.Background(), bson.M{"_id": f.UserID}).Decode(&requester)
 		pendingRequests = append(pendingRequests, requester)
 	}
 
@@ -620,7 +618,7 @@ func searchUsersHandler(c *gin.Context) {
 	username := c.Query("username")
 	userClaims := c.MustGet("user").(*Claims)
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	var user User
 	err := coll.FindOne(context.Background(), bson.M{"username": username}).Decode(&user)
 	if err != nil {
@@ -653,7 +651,7 @@ func updateAvatarHandler(c *gin.Context) {
 		return
 	}
 
-	coll := client.Database("anime_db").Collection("users")
+	coll := client.Database("my_anime_app").Collection("users")
 	update := bson.M{"$set": bson.M{"avatar": input.AvatarUrl}}
 	_, err := coll.UpdateOne(context.Background(), bson.M{"_id": userID}, update)
 	if err != nil {

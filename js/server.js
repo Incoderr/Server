@@ -9,6 +9,7 @@ const axios = require('axios');
 const { ApolloServer } = require('@apollo/server');
 const { expressMiddleware } = require('@apollo/server/express4');
 const { gql } = require('graphql-tag');
+const nodemailer = require('nodemailer');
 
 const app = express();
 
@@ -36,6 +37,14 @@ mongoose
     });
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail', // Используем Gmail, можно заменить на другой сервис
+    auth: {
+      user: process.env.EMAIL_USER, // Ваш email (добавьте в .env)
+      pass: process.env.EMAIL_PASS, // Пароль приложения от Gmail (добавьте в .env)
+    },
+  });
 
 // Схема пользователя
 const userSchema = new mongoose.Schema({
@@ -846,6 +855,8 @@ const typeDefs = gql`
     removeFromFavorites(imdbID: String!): [String!]!
     updateWatchStatus(imdbID: String!, status: String!): [WatchStatus!]!
     updateAvatar(avatarUrl: String!): User!
+    forgotPassword(email: String!): String!
+    resetPassword(token: String!, newPassword: String!): String!
   }
 `;
 
@@ -1133,6 +1144,58 @@ const resolvers = {
 
       return updatedUser;
     },
+    forgotPassword: async (_, { email }) => {
+      if (!email) throw new Error('Email обязателен');
+
+      const user = await User.findOne({ email });
+      if (!user) throw new Error('Пользователь с таким email не найден');
+
+      const resetToken = jwt.sign(
+        { id: user._id, email: user.email },
+        SECRET_KEY,
+        { expiresIn: '1h' }
+      );
+
+      const resetLink = `https://animeinc.vercel.app/reset-password?token=${resetToken}`;
+
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Сброс пароля на AnimeInc',
+        html: `
+          <p>Здравствуйте, ${user.username}!</p>
+          <p>Вы запросили сброс пароля. Перейдите по ссылке ниже, чтобы установить новый пароль:</p>
+          <a href="${resetLink}">${resetLink}</a>
+          <p>Если вы не запрашивали сброс пароля, проигнорируйте это письмо.</p>
+          <p>Ссылка действительна в течение 1 часа.</p>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+      return 'Письмо с инструкциями отправлено на ваш email';
+    },
+    
+    resetPassword: async (_, { token, newPassword }) => {
+      if (!token || !newPassword) throw new Error('Токен и новый пароль обязательны');
+
+      let decoded;
+      try {
+        decoded = jwt.verify(token, SECRET_KEY);
+      } catch (err) {
+        throw new Error('Недействительный или просроченный токен');
+      }
+
+      const user = await User.findById(decoded.id);
+      if (!user || user.email !== decoded.email) {
+        throw new Error('Пользователь не найден');
+      }
+
+      const hashedPassword = await argon2.hash(newPassword);
+      user.password = hashedPassword;
+      await user.save();
+
+      return 'Пароль успешно изменён';
+    },
   },
 };
 
@@ -1152,6 +1215,84 @@ const apolloServer = new ApolloServer({
     }
     return { user: null };
   },
+});
+
+// REST API: Запрос на восстановление пароля
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Email обязателен' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Пользователь с таким email не найден' });
+    }
+
+    // Генерация токена для сброса пароля
+    const resetToken = jwt.sign(
+      { id: user._id, email: user.email },
+      SECRET_KEY,
+      { expiresIn: '1h' } // Токен действителен 1 час
+    );
+
+    // Ссылка для сброса пароля
+    const resetLink = `https://animeinc.vercel.app/reset-password?token=${resetToken}`;
+
+    // Отправка письма
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Сброс пароля на AnimeInc',
+      html: `
+        <p>Здравствуйте, ${user.username}!</p>
+        <p>Вы запросили сброс пароля. Перейдите по ссылке ниже, чтобы установить новый пароль:</p>
+        <a href="${resetLink}">${resetLink}</a>
+        <p>Если вы не запрашивали сброс пароля, проигнорируйте это письмо.</p>
+        <p>Ссылка действительна в течение 1 часа.</p>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ message: 'Письмо с инструкциями отправлено на ваш email' });
+  } catch (error) {
+    console.error('Ошибка при запросе восстановления пароля:', error);
+    res.status(500).json({ message: 'Ошибка сервера', error: error.message });
+  }
+});
+
+// REST API: Сброс пароля
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: 'Токен и новый пароль обязательны' });
+    }
+
+    // Проверка токена
+    let decoded;
+    try {
+      decoded = jwt.verify(token, SECRET_KEY);
+    } catch (err) {
+      return res.status(400).json({ message: 'Недействительный или просроченный токен' });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user || user.email !== decoded.email) {
+      return res.status(400).json({ message: 'Пользователь не найден' });
+    }
+
+    // Хеширование нового пароля
+    const hashedPassword = await argon2.hash(newPassword);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({ message: 'Пароль успешно изменён' });
+  } catch (error) {
+    console.error('Ошибка при сбросе пароля:', error);
+    res.status(500).json({ message: 'Ошибка сервера', error: error.message });
+  }
 });
 
 // Запуск Apollo Server

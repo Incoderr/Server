@@ -1,0 +1,78 @@
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  avatar: String
+  role: String!
+  favorites: [String!]!
+  watchStatus: [WatchStatus!]!
+  favoritesData: [Anime!]
+}
+
+type Anime {
+  id: ID!
+  Title: String!
+  TitleEng: String!
+  Poster: String!
+  Backdrop: String
+  Year: String!
+  Released: String!
+  imdbRating: String
+  imdbID: String!
+  Episodes: Int
+  Genre: [String!]!
+  Tags: [String!]!
+  OverviewRu: String!
+}
+
+type WatchStatus {
+  imdbID: String!
+  status: String!
+}
+
+type Friendship {
+  id: ID!
+  userId: User!
+  friendId: User!
+  status: String!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type FriendsResponse {
+  friends: [User!]!
+  pendingRequests: [Friendship!]!
+}
+
+type WatchStats {
+  plan_to_watch: Int!
+  watching: Int!
+  completed: Int!
+  dropped: Int!
+}
+
+type AuthResponse {
+  token: String!
+  user: User!
+}
+
+type Query {
+  profile: User!
+  profileByUsername(username: String!): User
+  searchUser(username: String!): User
+  friends: FriendsResponse!
+  anime(imdbID: String!): Anime
+  animeList(genre: [String!], search: String, fields: [String!], limit: Int, sort: String): [Anime!]!
+  watchStats: WatchStats!
+}
+
+type Mutation {
+  register(login: String!, email: String!, password: String!, turnstileToken: String!, role: String): AuthResponse!
+  login(login: String!, password: String!): AuthResponse!
+  addFriend(friendUsername: String!): String!
+  acceptFriend(friendshipId: ID!): String!
+  addToFavorites(imdbID: String!): [String!]!
+  removeFromFavorites(imdbID: String!): [String!]!
+  updateWatchStatus(imdbID: String!, status: String!): [WatchStatus!]!
+  updateAvatar(avatarUrl: String!): User!
+}

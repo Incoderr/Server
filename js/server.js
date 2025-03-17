@@ -452,27 +452,7 @@ app.get('/api/anime', async (req, res) => {
       const genreArray = Array.isArray(genre)
         ? genre.map(g => g.trim())
         : genre.toString().split(',').map(g => g.trim()).filter(Boolean);
-      const genreMapping = {
-        "Экшен": "Action",
-        "Приключения": "Adventure",
-        "Комедия": "Comedy",
-        "Драма": "Drama",
-        "Этти": "Ecchi",
-        "Фэнтези": "Fantasy",
-        "Хоррор": "Horror",
-        "Меха": "Mecha",
-        "Музыка": "Music",
-        "Детектив": "Mystery",
-        "Психологическое": "Psychological",
-        "Романтика": "Romance",
-        "Научная_фантастика": "Sci-Fi",
-        "Повседневность": "Slice of Life",
-        "Спорт": "Sports",
-        "Сверхъестественное": "Supernatural",
-        "Триллер": "Thriller",
-      };
-      const englishGenres = genreArray.map(g => genreMapping[g] || g);
-      query.Genre = { $in: englishGenres };
+      query.Genre = { $in: genreArray }; // Используем genre как есть (ожидем "Sci-Fi")
     }
 
     if (search) {

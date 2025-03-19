@@ -50,8 +50,8 @@ const userSchema = new mongoose.Schema({
       imdbID: { type: String, required: true },
       status: {
         type: String,
-        enum: ["plan_to_watch", "watching", "completed", "dropped"],
-        default: "plan_to_watch",
+        enum: ["plan_to_watch", "watching", "completed", "dropped", ""],
+        default: "",
       },
     },
   ],
@@ -400,7 +400,7 @@ app.put("/api/watch-status", authenticateToken, async (req, res) => {
       return res.status(400).json({ message: "imdbID и status обязательны" });
     }
 
-    const validStatuses = ["plan_to_watch", "watching", "completed", "dropped"];
+    const validStatuses = ["plan_to_watch", "watching", "completed", "dropped", ""];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ message: "Недопустимый статус" });
     }
@@ -409,9 +409,9 @@ app.put("/api/watch-status", authenticateToken, async (req, res) => {
     const existingStatus = user.watchStatus.find((ws) => ws.imdbID === imdbID);
 
     if (existingStatus) {
-      existingStatus.status = status;
+      existingStatus.status = status || "";
     } else {
-      user.watchStatus.push({ imdbID, status });
+      user.watchStatus.push({ imdbID, status: status || "" });
     }
 
     await user.save();
@@ -778,7 +778,7 @@ const typeDefs = gql`
 
   type WatchStatus {
     imdbID: String!
-    status: String!
+    status: String
   }
 
   type Friendship {
@@ -1086,16 +1086,16 @@ const resolvers = {
       if (!user) throw new Error('Требуется авторизация');
       if (!imdbID || !status) throw new Error("imdbID и status обязательны");
 
-      const validStatuses = ["plan_to_watch", "watching", "completed", "dropped"];
+      const validStatuses = ["plan_to_watch", "watching", "completed", "dropped", ""];
       if (!validStatuses.includes(status)) throw new Error("Недопустимый статус");
 
       const foundUser = await User.findById(user.id);
       const existingStatus = foundUser.watchStatus.find((ws) => ws.imdbID === imdbID);
 
       if (existingStatus) {
-        existingStatus.status = status;
+        existingStatus.status = status || "";
       } else {
-        foundUser.watchStatus.push({ imdbID, status });
+        foundUser.watchStatus.push({ imdbID, status: status || "" });
       }
 
       await foundUser.save();

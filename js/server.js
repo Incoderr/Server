@@ -61,18 +61,26 @@ const User = mongoose.model('User', userSchema);
 
 // Схема аниме
 const animeSchema = new mongoose.Schema({
-  Title: { type: String, required: true },
-  TitleEng: { type: String, required: true },
-  Poster: { type: String, required: true },
-  Backdrop: { type: String },
-  Year: { type: String, required: true },
-  Released: { type: String, required: true },
-  imdbRating: { type: String },
+  title: { type: String, required: true },
+  titleEng: { type: String, required: true },
+  poster: { type: String, required: true },
+  backdrop: { type: String },
+  year: { type: String, required: true },
+  status: { type: String, required: true },
+  score: {
+    type: [{
+      imdbscore: { type: String },
+      shikiscore: { type: String },
+    }],
+    default: [],
+  },
   imdbID: { type: String, required: true, unique: true },
-  Episodes: { type: Number },
-  Genre: { type: [String], required: true, default: [] },
-  Tags: { type: [String], default: [] },
-  OverviewRu: { type: String, required: true },
+  expresspisodes: { type: Number },
+  overviewRu: { type: String, required: true },
+  url: { type: String },
+  genres: { type: [String], default: [] },
+  studios: { type: [String], default: [] }, 
+  externalLinks: { type: [String], default: [] }, 
 }, { collection: 'anime_list' });
 
 const Anime = mongoose.model('Anime', animeSchema);
@@ -457,8 +465,8 @@ app.get('/api/anime', async (req, res) => {
 
     if (search) {
       query.$or = [
-        { Title: { $regex: new RegExp(search, 'i') } },
-        { TitleEng: { $regex: new RegExp(search, 'i') } }
+        { title: { $regex: new RegExp(search, 'i') } },
+        { titleEng: { $regex: new RegExp(search, 'i') } }
       ];
     }
 
@@ -476,7 +484,7 @@ app.get('/api/anime', async (req, res) => {
       ).values()
     ).map(anime => ({
       ...anime.toObject(),
-      Genre: Array.isArray(anime.Genre) ? anime.Genre : (anime.Genre ? [anime.Genre] : []),
+      Genre: Array.isArray(anime.genres) ? anime.genres : (anime.genres ? [anime.genres] : []),
     }));
 
     if (uniqueAnime.length === 0) return res.status(404).json({ message: 'Аниме не найдено' });
@@ -545,12 +553,12 @@ app.post('/api/anilist', async (req, res) => {
       english: normalizeTitle(anime.title.english),
     }));
 
-    const dbAnimeList = await Anime.find({}).select('Title TitleEng imdbID Backdrop Poster OverviewRu Episodes Year imdbRating Genre Status');
+    const dbAnimeList = await Anime.find({}).select('title titleEng imdbID backdrop poster overviewRu episodes year score genres status');
 
     const dbAnimeMap = new Map();
     dbAnimeList.forEach(dbAnime => {
-      if (dbAnime.Title) dbAnimeMap.set(normalizeTitle(dbAnime.Title), dbAnime);
-      if (dbAnime.TitleEng) dbAnimeMap.set(normalizeTitle(dbAnime.TitleEng), dbAnime);
+      if (dbAnime.titleitle) dbAnimeMap.set(normalizeTitle(dbAnime.title), dbAnime);
+      if (dbAnime.titleEng) dbAnimeMap.set(normalizeTitle(dbAnime.titleEng), dbAnime);
     });
 
     const enhancedMedia = anilistMedia.map(anime => {
@@ -561,8 +569,8 @@ app.post('/api/anilist', async (req, res) => {
 
       if (!dbAnime) {
         for (const dbAnime of dbAnimeList) {
-          const dbTitleNormalized = normalizeTitle(dbAnime.Title) || '';
-          const dbTitleEngNormalized = normalizeTitle(dbAnime.TitleEng) || '';
+          const dbTitleNormalized = normalizeTitle(dbAnime.title) || '';
+          const dbTitleEngNormalized = normalizeTitle(dbAnime.titleEng) || '';
           if (
             (normalizedRomaji && dbTitleNormalized.includes(normalizedRomaji)) ||
             (normalizedEnglish && dbTitleEngNormalized.includes(normalizedEnglish)) ||
@@ -616,7 +624,7 @@ app.post('/api/anilist', async (req, res) => {
 app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   console.log('Admin request for anime list by user:', req.user);
   try {
-    const animeList = await Anime.find().select('Title TitleEng Poster Backdrop Year Released imdbRating imdbID Episodes Genre Tags OverviewRu');
+    const animeList = await Anime.find().select('title titleEng poster backdrop year status score imdbID episodes genres overviewRu url studios externalLinks');
     res.json(animeList);
   } catch (error) {
     console.error('Ошибка при получении списка аниме:', error);
@@ -627,17 +635,24 @@ app.get('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
 app.post('/api/admin/anime', authenticateToken, isAdmin, async (req, res) => {
   try {
     const animeData = req.body;
-    if (!animeData.imdbID || !animeData.Title || !animeData.TitleEng || !animeData.Poster || !animeData.Year || !animeData.Released || !animeData.Genre || !animeData.OverviewRu) {
+    if (!animeData.imdbID || !animeData.title || !animeData.titleEng || !animeData.poster || !animeData.year || !animeData.status || !animeData.genres || !animeData.overviewRu) {
       return res.status(400).json({ message: 'Все обязательные поля должны быть заполнены' });
     }
-    if (typeof animeData.Genre === 'string') {
-      animeData.Genre = animeData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
+
+    if (typeof animeData.genres === 'string') {
+      animeData.genres = animeData.genres.split(",").map(genre => genre.trim()).filter(Boolean);
     }
-    if (animeData.Episodes) {
-      animeData.Episodes = parseInt(animeData.Episodes) || 0;
+    if (typeof animeData.studios === 'string') {
+      animeData.studios = animeData.studios.split(",").map(studio => studio.trim()).filter(Boolean);
     }
-    if (typeof animeData.Tags === 'string') {
-      animeData.Tags = animeData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
+    if (typeof animeData.externalLinks === 'string') {
+      animeData.externalLinks = animeData.externalLinks.split(",").map(link => link.trim()).filter(Boolean);
+    }
+    if (animeData.episodes) {
+      animeData.episodes = parseInt(animeData.episodes) || 0;
+    }
+    if (animeData.score && typeof animeData.score === 'string') {
+      animeData.score = JSON.parse(animeData.score); // Предполагаем, что Score приходит как строка JSON
     }
 
     const newAnime = new Anime(animeData);
@@ -656,46 +671,52 @@ app.put('/api/admin/anime/:imdbID', authenticateToken, isAdmin, async (req, res)
 
     console.log('PUT /api/admin/anime/:imdbID - Received data:', updatedData);
 
-    if (!updatedData.Title || !updatedData.TitleEng || !updatedData.Poster || !updatedData.Year || !updatedData.Released || !updatedData.OverviewRu) {
-      return res.status(400).json({ message: 'Обязательные поля (Title, TitleEng, Poster, Year, Released, OverviewRu) должны быть заполнены' });
+    if (!updatedData.title || !updatedData.titleEng || !updatedData.poster || !updatedData.year || !updatedData.status || !updatedData.overviewRu) {
+      return res.status(400).json({ message: 'Обязательные поля (title, titleEng, poster, year, status, overviewRu) должны быть заполнены' });
     }
 
-    if (typeof updatedData.Genre === 'string') {
-      updatedData.Genre = updatedData.Genre.split(",").map(genre => genre.trim()).filter(Boolean);
+    if (typeof updatedData.genres === 'string') {
+      updatedData.Genre = updatedData.genres.split(",").map(genres => genres.trim()).filter(Boolean);
     }
-    if (!updatedData.Genre || updatedData.Genre.length === 0) {
-      return res.status(400).json({ message: 'Жанры (Genre) должны быть указаны' });
-    }
-
-    if (typeof updatedData.Tags === 'string') {
-      updatedData.Tags = updatedData.Tags.split(",").map(tag => tag.trim()).filter(Boolean);
+    if (!updatedData.genres || updatedData.genres.length === 0) {
+      return res.status(400).json({ message: 'Жанры (Genres) должны быть указаны' });
     }
 
-    if (updatedData.Episodes !== undefined && updatedData.Episodes !== null) {
-      updatedData.Episodes = parseInt(updatedData.Episodes) || 0;
+    if (typeof updatedData.studios === 'string') {
+      updatedData.studios = updatedData.studios.split(",").map(studio => studio.trim()).filter(Boolean);
+    }
+    if (typeof updatedData.externalLinks === 'string') {
+      updatedData.externalLinks = updatedData.externalLinks.split(",").map(link => link.trim()).filter(Boolean);
     }
 
-    if (updatedData.Backdrop === "") {
-      updatedData.Backdrop = undefined;
+    if (updatedData.episodes !== undefined && updatedData.episodes !== null) {
+      updatedData.episodes = parseInt(updatedData.episodes) || 0;
     }
-    if (updatedData.imdbRating === "") {
-      updatedData.imdbRating = undefined;
+
+    if (updatedData.score && typeof updatedData.score === 'string') {
+      updatedData.score = JSON.parse(updatedData.score); // Парсим Score из строки JSON
+    }
+
+    if (updatedData.backdrop === "") {
+      updatedData.backdrop = undefined;
     }
 
     delete updatedData._id;
 
     const allowedUpdates = {
-      Title: updatedData.Title,
-      TitleEng: updatedData.TitleEng,
-      Poster: updatedData.Poster,
-      Backdrop: updatedData.Backdrop,
-      Year: updatedData.Year,
-      Released: updatedData.Released,
-      imdbRating: updatedData.imdbRating,
-      Episodes: updatedData.Episodes,
-      Genre: updatedData.Genre,
-      Tags: updatedData.Tags,
-      OverviewRu: updatedData.OverviewRu,
+      title: updatedData.title,
+      titleEng: updatedData.titleEng,
+      poster: updatedData.poster,
+      backdrop: updatedData.backdrop,
+      year: updatedData.year,
+      status: updatedData.status,
+      score: updatedData.score,
+      episodes: updatedData.episodes,
+      genres: updatedData.genres,
+      overviewRu: updatedData.overviewRu,
+      url: updatedData.url,
+      studios: updatedData.studios,
+      externalLinks: updatedData.externalLinks,
     };
 
     const updatedAnime = await Anime.findOneAndUpdate(
@@ -761,20 +782,27 @@ const typeDefs = gql`
   }
 
   type Anime {
-    id: ID!
-    Title: String!
-    TitleEng: String!
-    Poster: String!
-    Backdrop: String
-    Year: String!
-    Released: String!
-    imdbRating: String
-    imdbID: String!
-    Episodes: Int
-    Genre: [String!]!
-    Tags: [String!]!
-    OverviewRu: String!
-  }
+  id: ID!
+  title: String!
+  titleEng: String!
+  poster: String!
+  backdrop: String
+  year: String!
+  status: String!
+  score: [Score!]
+  imdbID: String!
+  episodes: Int
+  overviewRu: String!
+  url: String
+  genres: [String!]
+  studios: [String!]
+  externalLinks: [String!]
+}
+
+type score {
+  imdbscore: String
+  shikiscore: String
+}
 
   type WatchStatus {
     imdbID: String!
